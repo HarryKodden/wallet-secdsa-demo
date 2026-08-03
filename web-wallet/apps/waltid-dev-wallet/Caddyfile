@@ -1,0 +1,9 @@
+wallet.local {
+	handle /wallet-api/* {
+		reverse_proxy localhost:7001
+	}
+
+	handle {
+		reverse_proxy localhost:7104
+	}
+}

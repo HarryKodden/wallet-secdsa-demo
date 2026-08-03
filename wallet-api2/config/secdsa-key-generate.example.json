@@ -1,0 +1,16 @@
+# Example payload for POST /wallet/{walletId}/keys/generate (SECDSA SoftHSM PoC).
+# Lab must be reachable from the wallet-api2 container at host.docker.internal:18080.
+#
+# Prefer unlocking via the wallet UI first:
+#   POST /wallet/{walletId}/keys/secdsa/unlock  { "accountId": "...", "pin": "..." }
+# Pass `pin` in generate config only as a one-shot; do not bake it into server config.
+#
+# {
+#   "backend": "secdsa",
+#   "keyType": "secp256r1",
+#   "config": {
+#     "baseUrl": "http://host.docker.internal:18080",
+#     "accountId": "citizen-42",
+#     "pin": "424242"
+#   }
+# }
