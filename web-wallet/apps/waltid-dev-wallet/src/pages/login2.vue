@@ -460,14 +460,14 @@ const availableOidcProviders = [
     name: "walt.id Keycloak",
     url: "",
     description: "walt.id hosted Keycloak 23.0.6",
-    icon: "/svg/waltid.svg",
+    icon: "/svg/digital-wallet.png",
   },
   {
     name: "walt.id Keycloak Test (Dev) Instance",
     url: "",
     description:
       "This is an unsecured test deployment. Do not use for production purposes.",
-    icon: "/svg/walt-s.svg",
+    icon: "/svg/digital-wallet.png",
   },
 ];
 

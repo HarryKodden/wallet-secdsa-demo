@@ -1,9 +1,9 @@
 export default defineAppConfig({
     enableCloudTenants: false,
     localTenant: {
-        name : "walt.id GmbH",
-        logoImage : "/svg/waltid.svg",
-        inWalletLogoImage : "/svg/walt-s.svg",
+        name : "SECDSA Wallet",
+        logoImage : "/svg/digital-wallet.png",
+        inWalletLogoImage : "/svg/digital-wallet.png",
         bgImage : "/images/start-page-background.png",
         showWaltidLoadingSpinner : true,
     }

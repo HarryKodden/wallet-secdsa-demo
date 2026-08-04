@@ -1,0 +1,119 @@
+# Self-contained walt.id OID4VC 1.0 + SECDSA demo stack.
+# Educational only — SECDSA is patent-encumbered (see SECDSA USAGE.md).
+
+name: wallet-secdsa-demo
+
+services:
+  secdsa:
+    image: ghcr.io/harrykodden/secdsa:latest
+    ports:
+      - "${SECDSA_HOST_PORT:-18080}:8080"
+    environment:
+      ADDR: ":8080"
+    # Memory WSCD lab (not SoftHSM). Educational / patent-encumbered.
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-waltid}
+      POSTGRES_USER: ${DB_USERNAME:-waltid}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-waltid}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-waltid} -d ${DB_NAME:-waltid}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "${WALLET_API2_HOST_PORT:-7006}:7006"
+      - "${ISSUER_API2_HOST_PORT:-7005}:7005"
+      - "${VERIFIER_API2_HOST_PORT:-7004}:7004"
+      - "${WEB_WALLET_HOST_PORT:-7115}:7115"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - wallet-api2
+      - issuer-api2
+      - verifier-api2
+      - web-wallet
+
+  wallet-api2:
+    build:
+      context: ./wallet-api2
+      dockerfile: Dockerfile
+    image: wallet-secdsa-demo/wallet-api2:local
+    env_file: .env
+    environment:
+      WALLET_API2_PORT: "7006"
+      POSTGRES_DB_HOST: postgres
+      DB_NAME: ${DB_NAME:-waltid}
+      DB_USERNAME: ${DB_USERNAME:-waltid}
+      DB_PASSWORD: ${DB_PASSWORD:-waltid}
+      SERVICE_HOST: ${SERVICE_HOST:-host.docker.internal}
+    volumes:
+      - ./wallet-api2/config:/waltid-wallet-api2/config:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      secdsa:
+        condition: service_started
+
+  issuer-api2:
+    image: ${IMAGE_PREFIX:-}waltid/issuer-api2:${VERSION_TAG:-stable}
+    env_file: .env
+    environment:
+      ISSUER_API2_PORT: "7005"
+      SERVICE_HOST: ${SERVICE_HOST:-host.docker.internal}
+    volumes:
+      - ./issuer-api2/config:/waltid-issuer-api2/config:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  verifier-api2:
+    image: ${IMAGE_PREFIX:-}waltid/verifier-api2:${VERSION_TAG:-stable}
+    env_file: .env
+    environment:
+      VERIFIER_API2_PORT: "7004"
+      SERVICE_HOST: ${SERVICE_HOST:-host.docker.internal}
+    volumes:
+      - ./verifier-api2/config:/waltid-verifier-api2/config:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web-wallet:
+    build:
+      context: ./web-wallet
+      dockerfile: Dockerfile
+      args:
+        NUXT_PUBLIC_WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
+        NUXT_PUBLIC_WSCA_BASE_URL: ${WSCA_INTERNAL_URL:-http://secdsa:8080}
+        NUXT_PUBLIC_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+        NUXT_PUBLIC_OIDC_AUTHORIZE_URL: ${NUXT_PUBLIC_OIDC_AUTHORIZE_URL:-https://oidc.pilot1.sram.surf.nl/authorize}
+        NUXT_PUBLIC_OIDC_REDIRECT_URI: ${NUXT_PUBLIC_OIDC_REDIRECT_URI:-http://localhost:7115/wallet-api/auth/oidc-session}
+        NUXT_OIDC_TOKEN_URL: ${NUXT_OIDC_TOKEN_URL:-https://oidc.pilot1.sram.surf.nl/token}
+        NUXT_PUBLIC_OIDC_SCOPES: ${NUXT_PUBLIC_OIDC_SCOPES:-openid email profile}
+        WALLET_API2_PROXY: http://wallet-api2:7006
+    image: wallet-secdsa-demo/web-wallet:local
+    environment:
+      HOST: 0.0.0.0
+      PORT: "7115"
+      NUXT_PUBLIC_WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
+      NUXT_PUBLIC_WSCA_BASE_URL: ${WSCA_INTERNAL_URL:-http://secdsa:8080}
+      NUXT_PUBLIC_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      NUXT_PUBLIC_OIDC_AUTHORIZE_URL: ${NUXT_PUBLIC_OIDC_AUTHORIZE_URL:-https://oidc.pilot1.sram.surf.nl/authorize}
+      NUXT_PUBLIC_OIDC_REDIRECT_URI: ${NUXT_PUBLIC_OIDC_REDIRECT_URI:-http://localhost:7115/wallet-api/auth/oidc-session}
+      NUXT_OIDC_TOKEN_URL: ${NUXT_OIDC_TOKEN_URL:-https://oidc.pilot1.sram.surf.nl/token}
+      NUXT_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      NUXT_PUBLIC_OIDC_SCOPES: ${NUXT_PUBLIC_OIDC_SCOPES:-openid email profile}
+    depends_on:
+      - wallet-api2
+      - secdsa
+
+volumes:
+  postgres-data:

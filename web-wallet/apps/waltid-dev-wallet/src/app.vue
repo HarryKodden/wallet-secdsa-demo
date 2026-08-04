@@ -1,10 +1,10 @@
 <template>
   <Html :lang="locale" class="h-full">
     <Head>
-      <Link :href="logoImg" rel="icon" type="text/xml" />
+      <Link :href="logoImg" rel="icon" type="image/png" />
     </Head>
     <!--<head>
-          <link rel="icon" type="text/xml" href="/svg/walt-s.svg">
+          <link rel="icon" type="image/png" href="/svg/digital-wallet.png">
         </head>-->
 
     <Body
@@ -28,16 +28,17 @@ import "uno.css";
 import {useTenant} from "@waltid-web-wallet/composables/tenants.ts";
 import ModalBase from "@waltid-web-wallet/components/modals/ModalBase.vue";
 
-const { status } = useAuth();
-const route = useRoute()
-
-watch(status, (newStatus, oldStatus) => {
-    console.log("Auth status change: " + oldStatus + " -> " + newStatus)
-    // Do not force /login on unauthenticated — wallet-api2 PoC is open, and
-    // bouncing here broke hard-refresh / incognito when OIDC was proxied away.
-})
-
 const locale = useState<string>("locale.i18n");
+
+onMounted(async () => {
+  if (!("serviceWorker" in navigator)) return;
+  const registrations = await navigator.serviceWorker.getRegistrations();
+  await Promise.all(registrations.map((registration) => registration.unregister()));
+  if ("caches" in window) {
+    const cacheKeys = await caches.keys();
+    await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+  }
+});
 
 const tenant = await useTenant().value;
 const name = tenant?.name;

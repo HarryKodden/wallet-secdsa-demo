@@ -65,7 +65,8 @@ export async function createNewWallet(open = true): Promise<string> {
 
 /**
  * List / auto-create wallets on wallet-api2.
- * Auth is optional on wallet-api2 today — when auth is off we keep a wallet id in localStorage.
+ * With auth enabled, GET /wallet returns only wallets linked to the JWT account.
+ * localStorage remembers the last selected wallet id for this browser.
  */
 export async function listWallets() {
     const data = useState<WalletListings>("wallet2.listings", () => ({

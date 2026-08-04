@@ -74,7 +74,7 @@
                 </div>
               </TransitionChild>
               <div class="flex flex-shrink-0 items-center px-4">
-                <img alt="" class="h-14 w-auto" :src="inWalletLogoImage" />
+                <img alt="SECDSA Wallet" class="h-14 w-14 rounded-2xl shadow-sm" :src="inWalletLogoImage" />
               </div>
 
               <nav
@@ -114,17 +114,6 @@
                       {{ item.name }}
                     </NuxtLink>
                   </div>
-                  <div
-                    class="absolute left-0 right-0 flex flex-col items-center justify-center bottom-3"
-                  >
-                    <NuxtLink
-                      :to="demoWalletUrl"
-                      class="text-white group text-base font-medium"
-                    >
-                      Switch To Demo Version
-                    </NuxtLink>
-                    <hr class="w-2/3 border-blue-200" />
-                  </div>
                 </div>
               </nav>
             </DialogPanel>
@@ -144,7 +133,7 @@
         style="color: rgb(37, 99, 235)"
       >
         <div class="flex flex-shrink-0 items-center px-4">
-          <img alt="" class="h-14 w-auto" :src="inWalletLogoImage" />
+          <img alt="SECDSA Wallet" class="h-14 w-14 rounded-2xl shadow-sm" :src="inWalletLogoImage" />
         </div>
         <nav
           aria-label="Sidebar"
@@ -168,7 +157,7 @@
               </NuxtLink>
             </div>
           </div>
-          <div class="mt-6 pt-6 flex flex-col justify-between h-full">
+          <div class="mt-6 pt-6 flex flex-col h-full">
             <div class="space-y-1 px-2">
               <NuxtLink
                 v-for="item in secondaryNavigation"
@@ -183,15 +172,6 @@
                 />
                 {{ item.name }}
               </NuxtLink>
-            </div>
-            <div class="flex flex-col items-center justify-center">
-              <NuxtLink
-                :to="demoWalletUrl"
-                class="text-white group text-base font-medium"
-              >
-                Switch To Demo Version
-              </NuxtLink>
-              <hr class="w-2/3 border-blue-200" />
             </div>
           </div>
         </nav>
@@ -235,26 +215,6 @@
             </form>
           </div>
           <div class="ml-4 flex items-center md:ml-6">
-            <button
-              class="rounded-full bg-white p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              type="button"
-              @click="reloadData"
-            >
-              <span class="sr-only">Refresh</span>
-              <ArrowPathIcon
-                :class="[refreshing ? 'animate-spin' : '']"
-                aria-hidden="true"
-                class="h-6 w-6"
-              />
-            </button>
-            <button
-              class="rounded-full bg-white p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              type="button"
-            >
-              <span class="sr-only">View notifications</span>
-              <BellIcon aria-hidden="true" class="h-6 w-6" />
-            </button>
-
             <!-- Profile dropdown -->
             <Menu as="div" class="relative ml-3">
               <div>
@@ -264,7 +224,7 @@
                   <img
                     alt=""
                     class="h-8 w-8 rounded-full"
-                    src="/svg/walt-s.svg"
+                    src="/svg/digital-wallet.png"
                   />
                   <!-- src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"/> -->
                   <span
@@ -338,9 +298,7 @@
 import {ref} from "vue";
 import {Dialog, DialogPanel, Menu, MenuButton, MenuItem, MenuItems, TransitionChild, TransitionRoot} from "@headlessui/vue";
 import {
-    ArrowPathIcon,
     Bars3CenterLeftIcon,
-    BellIcon,
     ClipboardDocumentListIcon,
     CogIcon,
     FingerPrintIcon,
@@ -359,8 +317,25 @@ import {ensureValidWallet, useCurrentWallet} from "@waltid-web-wallet/composable
 import {useTenant} from "@waltid-web-wallet/composables/tenants.ts";
 import {logout} from "~/composables/authentication";
 
-const runtimeConfig = useRuntimeConfig();
-const demoWalletUrl = runtimeConfig.public.demoWalletUrl as string;
+const route = useRoute();
+const { status } = useAuth();
+const authToken = useCookie<string | null>("auth.token");
+
+function enforceAuth() {
+  const publicPaths = ["/login", "/login2", "/signup"];
+  const isPublicPath = publicPaths.some((path) => route.path.startsWith(path));
+  if (isPublicPath) return;
+
+  if (!authToken.value || status.value === "unauthenticated") {
+    const redirect = encodeURIComponent(route.fullPath || "/");
+    navigateTo(`/login?redirect=${redirect}`);
+  }
+}
+
+if (import.meta.client) {
+  enforceAuth();
+  watch([status, authToken, () => route.fullPath], enforceAuth);
+}
 
 const tenant = await useTenant().value;
 const name = tenant?.name;
@@ -369,17 +344,6 @@ const inWalletLogoImage = tenant?.inWalletLogoImage;
 
 const userStore = useUserStore();
 const { user } = storeToRefs(userStore);
-
-const refreshing = ref(false);
-
-async function reloadData() {
-  refreshing.value = true;
-  console.log("Refreshing data");
-  refreshNuxtData().then(() => {
-    refreshing.value = false;
-    console.log("Refreshed data");
-  });
-}
 
 const currentWallet = useCurrentWallet();
 

@@ -178,7 +178,7 @@
       :class="[isProgress ? 'animate-spin' : '']"
       class="absolute bottom-3.5 right-3.5 w-10 lg:w-16 h-10 lg:h-16 overflow-hidden"
     >
-      <img class="overflow-hidden" src="/svg/walt-s.svg" />
+      <img class="overflow-hidden" src="/svg/digital-wallet.png" />
     </div>
   </div>
 </template>

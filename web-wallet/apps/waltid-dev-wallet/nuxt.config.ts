@@ -5,6 +5,8 @@ import path from "path";
 export default defineNuxtConfig({
     devtools: {enabled: true},
     srcDir: "src",
+    // With srcDir: "src", Nuxt resolves server handlers under src/server (not ./server).
+    serverDir: "src/server",
 
     devServer: {
         port: 7115,
@@ -52,8 +54,8 @@ export default defineNuxtConfig({
         },
 
         globalAppMiddleware: {
-            // SECDSA PoC: wallet-api2 data APIs are open; OIDC is optional UX via classic auth proxy
-            isEnabled: false,
+            // Enforce authenticated sessions for all protected routes.
+            isEnabled: true,
         },
     },
 
@@ -192,13 +194,29 @@ export default defineNuxtConfig({
     },
 
     runtimeConfig: {
+        // Server-only — used by Nitro OIDC callback (never expose to the browser).
+        oidcClientSecret: process.env.NUXT_OIDC_CLIENT_SECRET || process.env.OIDC_CLIENT_SECRET || "",
+        oidcTokenUrl:
+            process.env.NUXT_OIDC_TOKEN_URL ||
+            process.env.NUXT_PUBLIC_OIDC_TOKEN_URL ||
+            "https://oidc.pilot1.sram.surf.nl/token",
+        walletApi2Proxy: process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
         public: {
             projectId: process.env.ProjectId,
             issuerCallbackUrl: "http://localhost:7100",
             credentialsRepositoryUrl: "http://localhost:3000",
             demoWalletUrl: "https://wallet-dev.walt.id",
+            oidcAuthorizeUrl: process.env.NUXT_PUBLIC_OIDC_AUTHORIZE_URL || "https://oidc.pilot1.sram.surf.nl/authorize",
+            oidcClientId: process.env.NUXT_PUBLIC_OIDC_CLIENT_ID || process.env.OIDC_CLIENT_ID || "",
+            // Must match the redirect URI registered at the IdP (classic wallet-api contract).
+            oidcRedirectUri:
+                process.env.NUXT_PUBLIC_OIDC_REDIRECT_URI ||
+                "http://localhost:7115/wallet-api/auth/oidc-session",
+            oidcPublicBaseUrl: process.env.NUXT_PUBLIC_OIDC_PUBLIC_BASE_URL || "http://localhost:7115",
+            oidcScopes: process.env.NUXT_PUBLIC_OIDC_SCOPES || "openid email profile",
             wscaAccountId: process.env.NUXT_PUBLIC_WSCA_ACCOUNT_ID || "citizen-42",
-            wscaBaseUrl: process.env.NUXT_PUBLIC_WSCA_BASE_URL || "http://host.docker.internal:18080",
+            // Inside compose, wallet-api2 reaches SECDSA as http://secdsa:8080
+            wscaBaseUrl: process.env.NUXT_PUBLIC_WSCA_BASE_URL || "http://secdsa:8080",
         },
     },
 
@@ -207,20 +225,8 @@ export default defineNuxtConfig({
             gzip: true,
             brotli: false,
         },
-        // Auth (incl. SURF OIDC) stays on classic wallet-api :7001.
-        // Use 127.0.0.1 (not localhost) — Node can resolve localhost oddly with SSH tunnels.
-        // redirect:'manual' is required so OIDC 302 reaches the browser (Nitro otherwise
-        // follows it and serves the IdP HTML from :7115, breaking the login flow).
-        // Everything else (keys, credentials, DIDs) → wallet-api2 :7006 (strip /wallet-api).
-        routeRules: {
-            "/wallet-api/auth/**": {
-                proxy: {
-                    to: "http://127.0.0.1:7001/wallet-api/auth/**",
-                    fetchOptions: {redirect: "manual"},
-                },
-            },
-            "/wallet-api/**": {proxy: "http://127.0.0.1:7006/**"},
-        },
+        // Wallet data APIs are proxied by src/server/routes/wallet-api/[...path].ts
+        // (not routeRules) so /wallet-api/auth/** Nitro handlers are not swallowed.
     },
 
     // i18n: {

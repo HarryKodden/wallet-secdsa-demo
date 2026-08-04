@@ -113,7 +113,16 @@ export async function useIssuance(query: any) {
                     : (e.data ?? e);
             errorMessage = errorMessage?.message ?? errorMessage;
 
-            failMessage.value = String(errorMessage);
+            const text = String(errorMessage);
+            // SoftHSM holds one key per account; another wallet's GENKEY can leave this
+            // wallet's did:jwk pointing at a stale public key → issuer rejects the proof.
+            if (/invalid_request/i.test(text)) {
+                failMessage.value =
+                    `${text} — often a stale SECDSA key/DID (SoftHSM was re-keyed). ` +
+                    `Delete this wallet's SECDSA key + did:jwk, regenerate, create a new DID, then use a fresh offer.`;
+            } else {
+                failMessage.value = text;
+            }
             console.log("Error: ", e?.data);
             // Do not rethrow — caller (ActionButton) must be able to reset and retry
         }

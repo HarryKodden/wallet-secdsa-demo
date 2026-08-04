@@ -1,0 +1,15 @@
+# Build artefacts (produce with ./scripts/build-wallet-api2.sh)
+wallet-api2/dist/
+web-wallet/node_modules/
+web-wallet/apps/*/.nuxt/
+web-wallet/apps/*/.output/
+web-wallet/apps/*/dist/
+**/.DS_Store
+.env.local
+*.log
+
+# Secrets — keep .env.example; never commit real .env
+.env
+.env.*
+!.env.example
+

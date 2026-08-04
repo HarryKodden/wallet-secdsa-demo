@@ -24,7 +24,7 @@
           @click="navigateTo(`/wallet/${currentWallet}`)"
         />
 
-        <div class="group flex">
+        <div class="flex flex-col items-end gap-2">
           <ActionButton
             :class="[
               failed
@@ -43,12 +43,13 @@
             icon="heroicons:check"
             type="button"
           />
-          <span
+          <p
             v-if="failed"
-            class="group-hover:opacity-100 transition-opacity bg-gray-800 px-1 text-sm text-gray-100 rounded-md absolute -translate-x-1/2 opacity-0 m-4 mx-auto max-w-xs break-words"
+            class="max-w-md rounded-md bg-red-50 px-3 py-2 text-left text-sm text-red-800 ring-1 ring-red-200"
           >
-            {{ failMessage }} — click Accept to retry
-          </span>
+            {{ failMessage }}
+            <span class="mt-1 block text-red-700/80">Click Accept to retry with a fresh offer if needed.</span>
+          </p>
         </div>
       </template>
     </PageHeader>

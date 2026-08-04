@@ -1,5 +1,6 @@
 {
   "name": "waltid-web-wallet-secdsa",
+  "license": "Apache-2.0",
   "scripts": {},
   "private": true,
   "workspaces": [

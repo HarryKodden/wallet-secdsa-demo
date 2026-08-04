@@ -1,0 +1,60 @@
+wallet-secdsa-demo
+Copyright 2026 Contributors to wallet-secdsa-demo
+
+This product includes software and materials from third parties.
+
+---------------------------------------------------------------------------
+walt.id (Apache License 2.0)
+---------------------------------------------------------------------------
+
+This demo wires and adapts open-source components from walt.id, including
+wallet-api2, issuer-api2, verifier-api2, related libraries, and a Nuxt-based
+web wallet UI derived from walt.id sources.
+
+  Copyright walt.id
+  Website:  https://walt.id
+  Docs:     https://docs.walt.id
+  Source:   https://github.com/walt-id/waltid-identity
+  License:  Apache License, Version 2.0 (see LICENSE)
+
+walt.id identity NOTICE (upstream):
+  "walt.id identity — Copyright 2025 walt.id"
+
+Docker Hub images used by this stack include waltid/issuer-api2 and
+waltid/verifier-api2. The SECDSA-enabled wallet-api2 image is built locally
+from waltid-identity plus the SECDSA adapter.
+
+This repository's demo glue (Compose, scripts, config overlays, Nuxt
+adaptations) is also licensed under Apache-2.0 (see LICENSE), except where
+third-party terms below apply.
+
+---------------------------------------------------------------------------
+SECDSA (patent-encumbered)
+---------------------------------------------------------------------------
+
+SECDSA is patent-encumbered. See:
+  https://github.com/HarryKodden/SECDSA/blob/main/USAGE.md
+
+Do not use this stack for production or commercial deployments without an
+appropriate SECDSA license. This demo is educational / PoC only.
+
+---------------------------------------------------------------------------
+Web wallet logo (Flaticon)
+---------------------------------------------------------------------------
+
+"Digital wallet" icon by Freepik on Flaticon:
+  https://www.flaticon.com/free-icon/digital-wallet_6783364
+
+Attribution is required under Flaticon's free license. Confirm Flaticon
+terms for your publication or distribution channel; commercial packaging
+may require a Flaticon Premium license or a replaced asset.
+
+---------------------------------------------------------------------------
+Demo cryptographic keys (not for production)
+---------------------------------------------------------------------------
+
+issuer-api2/config/issuer-service.conf, verifier-api2/config/verifier-service.conf,
+and wallet-api2/config/auth.conf contain EC private JWK material intended only
+for local educational demos (same class of keys as walt.id public docker-compose
+examples). Rotate them before any shared or internet-facing deployment.
+Never reuse these keys outside this PoC.

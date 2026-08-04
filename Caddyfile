@@ -1,0 +1,20 @@
+{
+	auto_https off
+	admin off
+}
+
+:7006 {
+	reverse_proxy http://wallet-api2:7006
+}
+
+:7005 {
+	reverse_proxy http://issuer-api2:7005
+}
+
+:7004 {
+	reverse_proxy http://verifier-api2:7004
+}
+
+:7115 {
+	reverse_proxy http://web-wallet:7115
+}
