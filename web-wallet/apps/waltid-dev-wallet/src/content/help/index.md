@@ -46,9 +46,14 @@ The SECDSA lab keeps **one user key** for account `citizen-42`. If another walle
 1. Open **Scan** in the wallet.
 2. **Same computer as the issuer page:** paste the offer link (or the `https://…/get-credential-offer/…` URL), or upload a screenshot of the QR. The camera cannot read a QR on the same screen.
 3. **Phone / second device:** use the camera to scan the QR.
-4. Review the issuer and credential type, select your `did:jwk`, enter the PIN, click **Accept**.
+4. Review the issuer and credential type, select your `did:jwk`.
+5. Depending on the grant shown on the issuance page:
+   - **pre-authorized_code** — enter the SECDSA PIN and click **Accept**.
+   - **authorization_code** — click **Continue at issuer**, sign in at the issuer, then return via `/oid4vci/callback` and unlock with the PIN to finish.
 
-Offers that use a pre-authorized code are typically **single-use**. If Accept already exchanged the code for a token but failed later, request a new offer from the issuer.
+Pre-authorized offers are typically **single-use**. If Accept already exchanged the code for a token but failed later, request a new offer from the issuer.
+
+For authorization_code, register `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (default `http://localhost:7115/oid4vci/callback`) at the issuer’s authorization server. Dev sandbox: [eduWallet sandbox](https://sandbox.dev.eduwallet.nl/).
 
 ## Presenting a credential
 
@@ -69,6 +74,8 @@ Offers that use a pre-authorized code are typically **single-use**. If Accept al
 | Symptom | Likely cause |
 |---------|----------------|
 | Accept fails with `invalid_request` | Stale SoftHSM key/DID (see above) or burned offer |
+| Auth-code callback: no matching `state` | Session expired / different browser tab — restart from Scan |
+| Auth-code: `redirect_uri` / `invalid_client` | `OID4VCI_*` not registered at the issuer AS |
 | PIN modal keeps failing | Wrong PIN, or SECDSA lab not running (`docker compose ps`) |
 | Empty keys after restart | Memory WSCD was wiped — regenerate key + DID |
 | Create DID looks failed but DID exists | Older proxy gzip bug — rebuild/restart `web-wallet` |

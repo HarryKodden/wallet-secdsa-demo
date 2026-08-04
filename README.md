@@ -67,6 +67,62 @@ cp .env.example .env   # fill OIDC_* if you use login
 
 **Lab account:** `citizen-42` · **PIN:** `424242`
 
+## Requesting credentials (authenticated users)
+
+Wallet-api2 auth is on: register or sign in first (email/password or OIDC), then open or
+create a wallet. Before the first receive/present, generate a SECDSA key and a `did:jwk`
+from it (Settings → Keys / DIDs). The wallet prompts for the lab PIN (`424242`) when the
+key must sign.
+
+To **receive** a credential (OID4VCI):
+
+1. Open **Scan** in the web wallet (http://localhost:7115).
+2. Paste a credential-offer URL, upload a QR screenshot, or scan the QR from a second device
+   (the camera cannot read a QR shown on the same screen).
+3. Review the offer, pick your `did:jwk`, then continue based on the grant:
+
+| Grant | What happens |
+|-------|----------------|
+| **pre-authorized_code** | Enter SECDSA PIN → **Accept** → credential stored (one-shot). |
+| **authorization_code** | **Continue at issuer** → sign in at the issuer AS → redirect to `/oid4vci/callback` → PIN → proof → store. |
+
+OAuth `state` (CSRF) is stored in the browser across the AS redirect; OID4VCI `issuer_state`
+from the offer is forwarded by wallet-api2 when building the authorization URL.
+
+Configure the OID4VCI public client in `.env` (separate from wallet **login** OIDC):
+
+```bash
+OID4VCI_CLIENT_ID=wallet-secdsa-demo
+OID4VCI_REDIRECT_URI=http://localhost:7115/oid4vci/callback
+```
+
+Register that `redirect_uri` (and client id) at the credential issuer’s authorization server.
+
+To **present** a credential (OID4VP), open or scan a presentation request the same way.
+
+### Dev issuer: eduWallet sandbox
+
+For end-to-end testing without standing up your own issuer, use the public sandbox:
+
+**[https://sandbox.dev.eduwallet.nl/](https://sandbox.dev.eduwallet.nl/)**
+
+It offers several credential types and flows useful for local wallet testing, including:
+
+- Pre-authorized and authorization-code issuance
+- eduID / eduPerson / Academic Base / Generic / PID style credentials
+- Optional PIN on issuance, expiry, and revoke scenarios
+- Matching verify actions for some credential types
+
+Pick an issue action on the sandbox page, then bring the resulting offer (QR or URL) into
+this demo’s **Scan** flow as an authenticated user.
+
+- **Pre-authorized** cards → Accept in the wallet (single-use codes — request a fresh offer if retrying).
+- **Authorization-code** cards (e.g. eduID) → Continue at issuer; ensure the sandbox AS allows
+  `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (or point those env vars at a client the sandbox already knows).
+
+The compose stack also ships local **issuer-api2** / **verifier-api2**
+(http://localhost:7005 / http://localhost:7004) if you prefer issuing against this stack.
+
 ## Layout
 
 ```text

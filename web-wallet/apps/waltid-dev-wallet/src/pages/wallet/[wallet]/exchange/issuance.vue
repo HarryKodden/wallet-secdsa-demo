@@ -12,6 +12,12 @@
           <p>
             issued by <span class="underline">{{ issuerHost }}</span>
           </p>
+          <p v-if="grantType === 'authorization_code'" class="mt-1 text-sm text-indigo-700">
+            Grant: <strong>authorization_code</strong> — you will sign in at the issuer
+          </p>
+          <p v-else-if="grantType === 'pre-authorized_code'" class="mt-1 text-sm text-gray-600">
+            Grant: <strong>pre-authorized_code</strong>
+          </p>
         </div>
       </template>
 
@@ -38,8 +44,8 @@
             :failed="failed"
             :handler="acceptCredential"
             class="inline-flex items-center rounded-md px-3 py-2 text-sm font-semibold text-white shadow-sm focus:outline focus:outline-offset-2 disabled:bg-gray-200 disabled:cursor-not-allowed"
-            display-text="Accept"
-            action-text="Accepting…"
+            :display-text="acceptLabel"
+            :action-text="acceptBusyLabel"
             icon="heroicons:check"
             type="button"
           />
@@ -48,7 +54,9 @@
             class="max-w-md rounded-md bg-red-50 px-3 py-2 text-left text-sm text-red-800 ring-1 ring-red-200"
           >
             {{ failMessage }}
-            <span class="mt-1 block text-red-700/80">Click Accept to retry with a fresh offer if needed.</span>
+            <span class="mt-1 block text-red-700/80">
+              Retry with a fresh offer if the code was already consumed.
+            </span>
           </p>
         </div>
       </template>
@@ -57,9 +65,23 @@
     <CenterMain>
       <h1 class="mb-2 text-2xl font-semibold">Issuance</h1>
 
+      <div
+        v-if="grantType === 'authorization_code'"
+        class="mb-4 rounded-md bg-indigo-50 px-3 py-2 text-sm text-indigo-900 ring-1 ring-indigo-100"
+      >
+        After you continue, the issuer authorization server will authenticate you and
+        redirect back to
+        <code class="text-xs">{{ oid4vciRedirectUri }}</code>
+        (must be registered for client
+        <code class="text-xs">OID4VCI_CLIENT_ID</code>).
+      </div>
+
       <LoadingIndicator v-if="immediateAccept" class="my-6 mb-12 w-full">
-        Receiving {{ credentialCount }}
-        credential(s)...
+        {{
+          grantType === "authorization_code"
+            ? "Redirecting to issuer…"
+            : `Receiving ${credentialCount} credential(s)…`
+        }}
       </LoadingIndicator>
 
       <div class="flex col-2">
@@ -249,7 +271,7 @@ import {Listbox, ListboxButton, ListboxLabel, ListboxOption, ListboxOptions} fro
 import {useIssuance} from "@waltid-web-wallet/composables/issuance.ts";
 import {CheckIcon, ChevronUpDownIcon} from "@heroicons/vue/20/solid";
 import {useTitle} from "@vueuse/core";
-import {ref} from "vue";
+import {computed, ref} from "vue";
 
 const query = useRoute().query;
 const immediateAccept = ref(false);
@@ -265,7 +287,16 @@ const {
   credentialCount,
   groupedCredentialTypes,
   issuerHost,
+  grantType,
+  oid4vciRedirectUri,
 } = await useIssuance(query);
+
+const acceptLabel = computed(() =>
+  grantType.value === "authorization_code" ? "Continue at issuer" : "Accept",
+);
+const acceptBusyLabel = computed(() =>
+  grantType.value === "authorization_code" ? "Redirecting…" : "Accepting…",
+);
 
 if (query.accept) {
   // TODO make accept a JWT or something wallet-backend secured

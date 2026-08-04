@@ -13,3 +13,6 @@ web-wallet/apps/*/dist/
 .env.*
 !.env.example
 
+# Local working notes (not for the public repo)
+TODO.md
+
