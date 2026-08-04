@@ -15,6 +15,8 @@ web wallet UI derived from walt.id sources.
   Website:  https://walt.id
   Docs:     https://docs.walt.id
   Source:   https://github.com/walt-id/waltid-identity
+  Private SECDSA mirror used to build this demo's wallet-api2:
+            https://github.com/HarryKodden/waltid-identity-secdsa
   License:  Apache License, Version 2.0 (see LICENSE)
 
 walt.id identity NOTICE (upstream):
@@ -22,7 +24,7 @@ walt.id identity NOTICE (upstream):
 
 Docker Hub images used by this stack include waltid/issuer-api2 and
 waltid/verifier-api2. The SECDSA-enabled wallet-api2 image is built locally
-from waltid-identity plus the SECDSA adapter.
+from the private waltid-identity-secdsa mirror plus the SECDSA adapter.
 
 This repository's demo glue (Compose, scripts, config overlays, Nuxt
 adaptations) is also licensed under Apache-2.0 (see LICENSE), except where

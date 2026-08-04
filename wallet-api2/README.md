@@ -13,7 +13,7 @@ docker compose build wallet-api2
 
 | Env | Default |
 |-----|---------|
-| `WALTID_IDENTITY_PATH` | `~/Projects/waltid-identity` |
+| `WALTID_IDENTITY_PATH` | `~/Projects/waltid-identity` ([waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa) checkout) |
 | `SECDSA_ADAPTER_PATH` | `~/Projects/secdsa-waltid-adapter` |
 
 ## Auth / ownership

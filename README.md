@@ -11,6 +11,8 @@ Self-contained Docker Compose demo:
 > **Educational / PoC only — not production-ready.**
 > Built on [walt.id](https://walt.id) open-source identity components
 > ([waltid-identity](https://github.com/walt-id/waltid-identity), Apache-2.0)
+> via the private SECDSA mirror
+> ([HarryKodden/waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa))
 > plus the patent-encumbered [SECDSA](https://github.com/HarryKodden/SECDSA)
 > lab — see [USAGE.md](https://github.com/HarryKodden/SECDSA/blob/main/USAGE.md)
 > and [NOTICE](NOTICE). This repo’s glue is Apache-2.0 ([LICENSE](LICENSE)),
@@ -101,9 +103,20 @@ demo builds a local image from `wallet-api2/dist` (gitignored — not published)
 
 | Env | Default |
 |-----|---------|
-| `WALTID_IDENTITY_PATH` | `~/Projects/waltid-identity` |
+| `WALTID_IDENTITY_PATH` | `~/Projects/waltid-identity` (use the private [waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa) checkout) |
 | `SECDSA_ADAPTER_PATH` | `~/Projects/secdsa-waltid-adapter` |
 | `JAVA_HOME` | Homebrew OpenJDK if present |
+
+CI (`prepare-wallet-api2`) checks out the private mirror when these **repository variables** are set:
+
+| Variable | Example |
+|----------|---------|
+| `WALTID_IDENTITY_REPO` | `HarryKodden/waltid-identity-secdsa` |
+| `WALTID_IDENTITY_REF` | `main` (optional) |
+| `SECDSA_ADAPTER_REPO` | `HarryKodden/secdsa-waltid-adapter` (or your private adapter) |
+| `SECDSA_ADAPTER_REF` | `main` (optional) |
+
+For private deps, add secret `DEPENDENCY_TOKEN` (PAT with `contents:read`).
 
 ```bash
 ./scripts/build-wallet-api2.sh

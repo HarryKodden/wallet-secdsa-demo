@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build waltid-wallet-api2 with SECDSA backend into ./wallet-api2/dist
 # Requires sibling checkouts (override with env):
-#   WALTID_IDENTITY_PATH  — waltid-identity monorepo
+#   WALTID_IDENTITY_PATH  — private SECDSA mirror of waltid-identity
+#                           (https://github.com/HarryKodden/waltid-identity-secdsa)
 #   SECDSA_ADAPTER_PATH   — secdsa-waltid-adapter sources
 set -euo pipefail
 
