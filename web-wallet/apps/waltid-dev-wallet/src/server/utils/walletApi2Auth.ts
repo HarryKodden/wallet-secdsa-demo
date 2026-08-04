@@ -130,7 +130,7 @@ export async function walletApi2Logout(token: string | undefined): Promise<void>
 }
 
 /**
- * Exchange a SURF OIDC JWT for a wallet-api2 session (JIT register + emailpass).
+ * Exchange a OIDC JWT for a wallet-api2 session (JIT register + emailpass).
  * wallet-api2 does not accept external IdP JWTs as Bearer tokens.
  */
 export async function bridgeOidcToWalletApi2(oidcJwt: string): Promise<{

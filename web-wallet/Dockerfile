@@ -2,7 +2,7 @@
 FROM node:22-bookworm AS build
 WORKDIR /app
 
-ARG NUXT_PUBLIC_APP_VERSION=dev
+ARG NUXT_PUBLIC_APP_VERSION=DEV
 ARG NUXT_PUBLIC_WSCA_ACCOUNT_ID=citizen-42
 ARG NUXT_PUBLIC_WSCA_BASE_URL=http://secdsa:8080
 ARG WALLET_API2_PROXY=http://wallet-api2:7006
@@ -32,7 +32,7 @@ RUN npm run build
 
 FROM node:22-bookworm-slim AS release
 WORKDIR /app
-ARG NUXT_PUBLIC_APP_VERSION=dev
+ARG NUXT_PUBLIC_APP_VERSION=DEV
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=7115 \

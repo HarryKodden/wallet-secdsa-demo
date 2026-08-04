@@ -34,7 +34,7 @@ export default defineNuxtConfig({
         provider: {
             type: "local",
             token: {
-                // Classic wallet-api (:7001) auth — proxied for SURF OIDC / email
+                // Classic wallet-api (:7001) auth — proxied for OIDC / email
                 maxAgeInSeconds: 60 * 60 * 24 * 7,
                 cookieName: 'auth.token',
                 sameSiteAttribute: 'lax',
@@ -203,8 +203,9 @@ export default defineNuxtConfig({
         walletApi2Proxy: process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
         public: {
             projectId: process.env.ProjectId,
-            // Release tag (e.g. v0.1.0) — shown as the SURF corner ribbon; set at image build.
-            appVersion: process.env.NUXT_PUBLIC_APP_VERSION || "dev",
+            // Release tag (e.g. v0.1.0) — shown as the corner ribbon; set at image build.
+            // theme-version corner ribbon (local default DEV; release builds pass vX.Y.Z).
+            appVersion: process.env.NUXT_PUBLIC_APP_VERSION || "DEV",
             issuerCallbackUrl: "http://localhost:7100",
             credentialsRepositoryUrl: "http://localhost:3000",
             demoWalletUrl: "https://wallet-dev.walt.id",

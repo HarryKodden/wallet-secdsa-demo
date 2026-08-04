@@ -8,7 +8,7 @@
         </head>-->
 
     <Body
-      class="theme-surf bg-white text-gray-800 antialiased transition-colors duration-300 h-full"
+      class="theme-version bg-white text-gray-800 antialiased transition-colors duration-300 h-full"
       :data-app-version="appVersion"
     >
       <!-- dark:bg-gray-900 dark:text-gray-200 -->
@@ -31,15 +31,29 @@ import ModalBase from "@waltid-web-wallet/components/modals/ModalBase.vue";
 
 const locale = useState<string>("locale.i18n");
 const runtimeConfig = useRuntimeConfig();
-const appVersion = computed(() => String(runtimeConfig.public.appVersion || "dev"));
+/** theme-version ribbon label — local default DEV (CSS also uppercases). */
+const appVersion = computed(() => {
+  const raw = String(runtimeConfig.public.appVersion || "DEV").trim();
+  return raw || "DEV";
+});
 
 onMounted(async () => {
+  // Ensure Body attrs are on the real <body> (Nuxt Html/Body can lag in SPA mode).
+  document.body.classList.add("theme-version");
+  document.body.setAttribute("data-app-version", appVersion.value);
+
   if (!("serviceWorker" in navigator)) return;
   const registrations = await navigator.serviceWorker.getRegistrations();
   await Promise.all(registrations.map((registration) => registration.unregister()));
   if ("caches" in window) {
     const cacheKeys = await caches.keys();
     await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+  }
+});
+
+watch(appVersion, (v) => {
+  if (import.meta.client) {
+    document.body.setAttribute("data-app-version", v);
   }
 });
 
@@ -61,11 +75,11 @@ const logoImg = tenant?.logoImage;
   height: 100%;
 }
 
-/* Diagonal version ribbon (upper-right), SURF theme convention */
-body.theme-surf {
+/* Diagonal version ribbon (upper-right) */
+body.theme-version {
   overflow-x: hidden;
 }
-body.theme-surf[data-app-version]::after {
+body.theme-version[data-app-version]::after {
   position: fixed;
   width: 120px;
   height: 28px;

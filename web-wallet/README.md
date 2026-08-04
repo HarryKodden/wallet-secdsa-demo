@@ -4,7 +4,7 @@ Nuxt wallet that talks to **wallet-api2** and unlocks the SECDSA key store with 
 
 In this demo project it is built and run by Docker Compose (`web-wallet` service on host port `7115`).
 
-SURF OIDC uses Nitro routes under `/wallet-api/auth/oidc-*` (classic wallet-api contract).
+OIDC uses Nitro routes under `/wallet-api/auth/oidc-*` (classic wallet-api contract).
 Register redirect URI `http://localhost:7115/wallet-api/auth/oidc-session`.
 
 For local npm development (stack already up):

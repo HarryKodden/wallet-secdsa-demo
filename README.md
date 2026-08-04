@@ -48,7 +48,7 @@ Postgres stay with the old account id.
 ```bash
 cd ~/Projects/wallet-secdsa-demo
 
-cp .env.example .env   # fill OIDC_* if you use SURF login
+cp .env.example .env   # fill OIDC_* if you use login
 
 # Required once (needs sibling repos — see below)
 ./scripts/build-wallet-api2.sh
@@ -145,7 +145,7 @@ Create a release (suggests the next patch tag; confirm or edit):
 ```
 
 The web wallet builds with `NUXT_PUBLIC_APP_VERSION` set to that tag and shows it on the
-upper-right SURF version ribbon.
+upper-right version ribbon.
 
 ## Web wallet only (host npm)
 
@@ -189,7 +189,7 @@ docker compose down -v && docker compose up --build -d
 
 - The SECDSA image is **memory WSCD**, not SoftHSM-in-Docker; naming in the UI is educational.
 - wallet-api2 **auth is enabled** (JWT). Email/password goes to `/auth/register` +
-  `/auth/emailpass`. **SURF OIDC** still starts in Nuxt; Nitro JIT-provisions a
+  `/auth/emailpass`. **OIDC** still starts in Nuxt; Nitro JIT-provisions a
   wallet-api2 account and stores the **wallet-api2** JWT in `auth.token`
   (set `OIDC_BRIDGE_SECRET` in `.env` for stable OIDC passwords across restarts
   of the *bridge*, not the API account store).

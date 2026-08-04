@@ -21,8 +21,8 @@ docker compose build wallet-api2
 - `config/_features.conf` enables **`auth`** and **`wallet2-persistence`**.
 - Register / login: `POST /auth/register`, `POST /auth/emailpass`.
 - Wallet list/create require a JWT; wallets are linked to the account (`sub`).
-- The Nuxt web-wallet bridges SURF OIDC → a JIT wallet-api2 account (see
-  `OIDC_BRIDGE_SECRET` in `.env.example`). Do not send SURF IdP JWTs as Bearer
+- The Nuxt web-wallet bridges OIDC → a JIT wallet-api2 account (see
+  `OIDC_BRIDGE_SECRET` in `.env.example`). Do not send IdP JWTs as Bearer
   tokens to wallet-api2.
 - Account directory is **in-memory** (upstream); keep this stack on localhost and
   expect re-register after API restarts.

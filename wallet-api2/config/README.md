@@ -10,7 +10,7 @@ Educational PoC only. See repo root `NOTICE` and `README.md`.
   the container clears passwords/accounts; wallet rows + ownership links in Postgres
   may then look “orphaned” until users re-register. Ownership isolation still holds
   for active sessions.
-- `oidc.conf` — reference OIDC settings; live SURF login is in the Nuxt web-wallet
+- `oidc.conf` — reference OIDC settings; live login is in the Nuxt web-wallet
   Nitro routes (`/wallet-api/auth/oidc-*`)
 - `wallet2-persistence.conf` — JDBC to the compose `postgres` service
 - `web.conf` / `wallet-service.conf` — bind + public base URL
