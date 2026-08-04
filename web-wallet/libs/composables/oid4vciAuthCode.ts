@@ -165,6 +165,19 @@ export async function completeAuthCodeIssuance(opts: {
     });
 }
 
+/** Ensure authorize URL has an OIDC scope (default openid). Does not remove authorization_details. */
+export function ensureOpenIdScope(authorizationUrl: string, scope = "openid"): string {
+    try {
+        const url = new URL(authorizationUrl);
+        if (!url.searchParams.get("scope")?.trim()) {
+            url.searchParams.set("scope", scope);
+        }
+        return url.toString();
+    } catch {
+        return authorizationUrl;
+    }
+}
+
 export async function startAuthCodeRedirect(opts: {
     walletId: string;
     offerUrl: string;
@@ -173,6 +186,8 @@ export async function startAuthCodeRedirect(opts: {
     redirectUri: string;
     credentialEndpoint: string;
     nonceEndpoint?: string | null;
+    /** OAuth scope for the authorize request (default openid). */
+    scope?: string;
 }): Promise<never> {
     const result = await $fetch<AuthorizationUrlResult>(
         `/wallet-api/wallet/${opts.walletId}/credentials/receive/authorization-url`,
@@ -187,10 +202,15 @@ export async function startAuthCodeRedirect(opts: {
         },
     );
 
-    const authorizationUrl =
+    let authorizationUrl =
         typeof result.authorizationUrl === "string"
             ? result.authorizationUrl
             : String(result.authorizationUrl);
+
+    // wallet-api2 often omits `scope`. Some ASs then substitute the client's
+    // registered scopes (e.g. wallet:read from demo templates), which eduID rejects.
+    // OID4VCI selects the credential via authorization_details; OIDC needs openid.
+    authorizationUrl = ensureOpenIdScope(authorizationUrl, opts.scope);
 
     saveAuthCodeContinuation({
         state: result.state,

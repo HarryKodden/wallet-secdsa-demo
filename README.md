@@ -96,7 +96,11 @@ OID4VCI_CLIENT_ID=wallet-secdsa-demo
 OID4VCI_REDIRECT_URI=http://localhost:7115/oid4vci/callback
 ```
 
-Register that `redirect_uri` (and client id) at the credential issuer’s authorization server.
+Register that `redirect_uri` and client id at the credential issuer’s authorization server.
+For **as.dev.eduid.nl**, allow at least scope **`openid`** on the client (optionally `profile`,
+`email`, or eduID scopes such as `eduid.nl/eduid`). Do **not** use `wallet:read` /
+`wallet:write` / `api:read` — those are unrelated demo scopes; OID4VCI names the credential
+via `authorization_details`, not those scopes.
 
 To **present** a credential (OID4VP), open or scan a presentation request the same way.
 
