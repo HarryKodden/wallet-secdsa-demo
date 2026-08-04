@@ -1,5 +1,10 @@
 # walt.id + SECDSA demo stack
 
+[![CI](https://github.com/HarryKodden/wallet-secdsa-demo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HarryKodden/wallet-secdsa-demo/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/HarryKodden/wallet-secdsa-demo?label=release)](https://github.com/HarryKodden/wallet-secdsa-demo/releases/latest)
+[![GHCR web-wallet](https://img.shields.io/badge/ghcr.io-web--wallet-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fweb-wallet)
+[![GHCR wallet-api2](https://img.shields.io/badge/ghcr.io-wallet--api2-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fwallet-api2)
+
 Self-contained Docker Compose demo:
 
 - **SECDSA** key lab (memory WSCD — educational)
@@ -72,6 +77,7 @@ wallet-secdsa-demo/
 ├── LICENSE / NOTICE
 ├── scripts/
 │   ├── build-wallet-api2.sh
+│   ├── create-release.sh   # tag + GitHub release → GHCR :<tag>
 │   └── up.sh
 ├── wallet-api2/            # Dockerfile + config; dist/ built locally
 ├── issuer-api2/config/
@@ -107,21 +113,39 @@ demo builds a local image from `wallet-api2/dist` (gitignored — not published)
 | `SECDSA_ADAPTER_PATH` | `~/Projects/secdsa-waltid-adapter` |
 | `JAVA_HOME` | Homebrew OpenJDK if present |
 
-CI (`prepare-wallet-api2`) checks out the private mirror when these **repository variables** are set:
+CI always builds `wallet-api2` from the private deps
+([waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa),
+[secdsa-waltid-adapter](https://github.com/HarryKodden/secdsa-waltid-adapter)).
+Add repository secret `DEPENDENCY_TOKEN` — a fine-grained PAT with **Contents: Read**
+on both private repos (`GITHUB_TOKEN` cannot clone sibling private repositories).
 
-| Variable | Example |
-|----------|---------|
-| `WALTID_IDENTITY_REPO` | `HarryKodden/waltid-identity-secdsa` |
-| `WALTID_IDENTITY_REF` | `main` (optional) |
-| `SECDSA_ADAPTER_REPO` | `HarryKodden/secdsa-waltid-adapter` (or your private adapter) |
-| `SECDSA_ADAPTER_REF` | `main` (optional) |
-
-For private deps, add secret `DEPENDENCY_TOKEN` (PAT with `contents:read`).
+Optional branch overrides (repository variables): `WALTID_IDENTITY_REF`, `SECDSA_ADAPTER_REF`
+(default `main`).
 
 ```bash
 ./scripts/build-wallet-api2.sh
 docker compose build wallet-api2
 ```
+
+## Releases & GHCR images
+
+CI publishes multi-arch images to GHCR. On every push to `main`: `:latest` and `:sha-<commit>`.
+On a version tag (`v*`) the same images are also tagged with the release (e.g. `:v0.1.0`).
+
+| Image | Pull |
+|-------|------|
+| Web wallet | `ghcr.io/harrykodden/wallet-secdsa-demo/web-wallet:<tag>` |
+| wallet-api2 (SECDSA) | `ghcr.io/harrykodden/wallet-secdsa-demo/wallet-api2:<tag>` |
+
+Create a release (suggests the next patch tag; confirm or edit):
+
+```bash
+./scripts/create-release.sh
+# or: ./scripts/create-release.sh v0.2.0
+```
+
+The web wallet builds with `NUXT_PUBLIC_APP_VERSION` set to that tag and shows it on the
+upper-right SURF version ribbon.
 
 ## Web wallet only (host npm)
 

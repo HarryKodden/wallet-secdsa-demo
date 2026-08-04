@@ -91,6 +91,7 @@ services:
       context: ./web-wallet
       dockerfile: Dockerfile
       args:
+        NUXT_PUBLIC_APP_VERSION: ${APP_VERSION:-dev}
         NUXT_PUBLIC_WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
         NUXT_PUBLIC_WSCA_BASE_URL: ${WSCA_INTERNAL_URL:-http://secdsa:8080}
         NUXT_PUBLIC_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
@@ -103,6 +104,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "7115"
+      NUXT_PUBLIC_APP_VERSION: ${APP_VERSION:-dev}
       NUXT_PUBLIC_WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
       NUXT_PUBLIC_WSCA_BASE_URL: ${WSCA_INTERNAL_URL:-http://secdsa:8080}
       NUXT_PUBLIC_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}

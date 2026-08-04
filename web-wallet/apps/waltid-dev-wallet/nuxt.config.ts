@@ -203,6 +203,8 @@ export default defineNuxtConfig({
         walletApi2Proxy: process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
         public: {
             projectId: process.env.ProjectId,
+            // Release tag (e.g. v0.1.0) — shown as the SURF corner ribbon; set at image build.
+            appVersion: process.env.NUXT_PUBLIC_APP_VERSION || "dev",
             issuerCallbackUrl: "http://localhost:7100",
             credentialsRepositoryUrl: "http://localhost:3000",
             demoWalletUrl: "https://wallet-dev.walt.id",

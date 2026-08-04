@@ -13,6 +13,12 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
+  # Private SECDSA build dependencies (same GitHub user/org).
+  # Checkout requires repository secret DEPENDENCY_TOKEN — a PAT (classic or
+  # fine-grained) with contents:read on both repos. GITHUB_TOKEN cannot access
+  # private repos other than the workflow's own repository.
+  WALTID_IDENTITY_REPO: HarryKodden/waltid-identity-secdsa
+  SECDSA_ADAPTER_REPO: HarryKodden/secdsa-waltid-adapter
 
 jobs:
   docker-web-wallet:
@@ -30,6 +36,15 @@ jobs:
         run: |
           owner_repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           echo "name=${{ env.REGISTRY }}/${owner_repo}/web-wallet" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve app version
+        id: ver
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -66,38 +81,41 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NUXT_PUBLIC_APP_VERSION=${{ steps.ver.outputs.version }}
           cache-from: type=gha,scope=web-wallet
           cache-to: type=gha,mode=max,scope=web-wallet
 
-  # wallet-api2 needs a SECDSA-enabled waltid-identity checkout plus
-  # secdsa-waltid-adapter (not in this repo). Configure repository variables:
-  #   WALTID_IDENTITY_REPO   e.g. YourOrg/waltid-identity
-  #   WALTID_IDENTITY_REF    optional, default main
-  #   SECDSA_ADAPTER_REPO    e.g. YourOrg/secdsa-waltid-adapter
-  #   SECDSA_ADAPTER_REF     optional, default main
-  # For private dependency repos, add secret DEPENDENCY_TOKEN (PAT with contents:read).
   prepare-wallet-api2:
     name: Prepare wallet-api2 dist
-    if: ${{ vars.WALTID_IDENTITY_REPO != '' && vars.SECDSA_ADAPTER_REPO != '' }}
     runs-on: ubuntu-latest
+    env:
+      # Map secret to env so we can guard on it (secrets cannot be used in if: directly).
+      DEPENDENCY_TOKEN: ${{ secrets.DEPENDENCY_TOKEN }}
     steps:
       - name: Checkout demo
         uses: actions/checkout@v4
 
-      - name: Checkout waltid-identity
+      - name: Require DEPENDENCY_TOKEN
+        if: env.DEPENDENCY_TOKEN == ''
+        run: |
+          echo "::error::Missing secret DEPENDENCY_TOKEN. Create a fine-grained PAT with Contents: Read on ${{ env.WALTID_IDENTITY_REPO }} and ${{ env.SECDSA_ADAPTER_REPO }}, then: gh secret set DEPENDENCY_TOKEN -R ${{ github.repository }}"
+          exit 1
+
+      - name: Checkout waltid-identity-secdsa
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.WALTID_IDENTITY_REPO }}
+          repository: ${{ env.WALTID_IDENTITY_REPO }}
           ref: ${{ vars.WALTID_IDENTITY_REF || 'main' }}
-          token: ${{ secrets.DEPENDENCY_TOKEN || github.token }}
+          token: ${{ env.DEPENDENCY_TOKEN }}
           path: .deps/waltid-identity
 
       - name: Checkout secdsa-waltid-adapter
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.SECDSA_ADAPTER_REPO }}
+          repository: ${{ env.SECDSA_ADAPTER_REPO }}
           ref: ${{ vars.SECDSA_ADAPTER_REF || 'main' }}
-          token: ${{ secrets.DEPENDENCY_TOKEN || github.token }}
+          token: ${{ env.DEPENDENCY_TOKEN }}
           path: .deps/secdsa-waltid-adapter
 
       - name: Set up Java
@@ -122,7 +140,6 @@ jobs:
   docker-wallet-api2:
     name: Docker / GHCR (wallet-api2)
     needs: prepare-wallet-api2
-    if: ${{ vars.WALTID_IDENTITY_REPO != '' && vars.SECDSA_ADAPTER_REPO != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
