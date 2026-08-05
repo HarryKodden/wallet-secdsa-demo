@@ -30,14 +30,15 @@ Self-contained Docker Compose demo:
 | wallet-api2 API auth | **Enabled** — JWT accounts; wallets are private to the logged-in account |
 | Issuer / verifier / wallet JWT keys | **Demo EC private JWKs** in config — rotate before any shared deploy |
 | Lab account / PIN | `citizen-42` / `424242` — SoftHSM-style lab defaults only (SECDSA, not walt.id login) |
+| Wallet / credential data | **Postgres** volume `postgres-data` (survives restart) |
+| Auth accounts (email/password) | File volume `wallet-api2-accounts` (`WALLET2_ACCOUNT_STORE_PATH`) |
+| SECDSA keys | Memory WSCD in `secdsa` — **not** durable across secdsa restart |
 | Secrets | Copy [`.env.example`](.env.example) → `.env`; never commit `.env` |
 | Binary build | `wallet-api2/dist/` is **not** in git — build with `./scripts/build-wallet-api2.sh` |
-| Account store | In-memory in wallet-api2 — re-register after API restart |
 
 Keep published ports on localhost. Rotate demo keys before any non-local use.
-Accounts are in-memory in wallet-api2: after `docker compose restart wallet-api2`,
-users must register/login again (new account id); prior wallet ownership links in
-Postgres stay with the old account id.
+Avoid `docker compose down -v` unless you intend to wipe Postgres and accounts.
+After restarting only `secdsa`, regenerate keys/DIDs (lab WSCD is in-memory).
 
 ## Quick start
 
@@ -104,13 +105,49 @@ via `authorization_details`, not those scopes.
 
 To **present** a credential (OID4VP), open or scan a presentation request the same way.
 
+### Local lab (issuer-api2 / verifier-api2)
+
+On **Scan**, the **Local lab** strip talks to this stack’s issuer and verifier through
+Nuxt server proxies (no browser CORS):
+
+| Action | What it does |
+|--------|----------------|
+| **Get credential** | Pre-authorized offer from issuer-api2 → normal issuance flow |
+| **Present to verifier** | DCQL request matching a credential **already in this wallet** → present flow |
+
+Lab issue defaults to **pre-authorized**. Authorization-code needs a user-login AS
+for issuer-api2 (not the same as wallet login OIDC):
+
+```bash
+# Issuer’s confidential client at your IdP (Keycloak, etc.)
+ISSUER_AS_AUTHORIZE_URL=https://keycloak.example/realms/demo/protocol/openid-connect/auth
+ISSUER_AS_TOKEN_URL=https://keycloak.example/realms/demo/protocol/openid-connect/token
+ISSUER_AS_CLIENT_ID=issuer_api
+ISSUER_AS_CLIENT_SECRET=...
+LAB_ENABLE_AUTH_CODE=true
+
+# Wallet’s public OID4VCI client (already used for sandbox auth-code)
+OID4VCI_CLIENT_ID=wallet-secdsa-demo
+OID4VCI_REDIRECT_URI=http://localhost:7115/oid4vci/callback
+```
+
+Then `docker compose up -d --force-recreate issuer-api2 web-wallet`. Without that, use
+the [eduWallet sandbox](https://sandbox.dev.eduwallet.nl/) for auth-code demos.
+
+Offer URLs may use `host.docker.internal` so wallet-api2 can fetch them inside Compose.
+The web wallet rewrites the browser authorize URL to `localhost`, and Caddy rewrites
+`Location` redirects the same way, so the flow can reach
+`/external_login` → your `ISSUER_AS_*` IdP. Register the issuer OAuth callback as
+`http://localhost:7005/openid4vci/external/oauth/callback` on that AS.
+Swagger remains at http://localhost:7005 / http://localhost:7004.
+
 ### Dev issuer: eduWallet sandbox
 
-For end-to-end testing without standing up your own issuer, use the public sandbox:
+For end-to-end testing against an external issuer (eduID-style auth-code, etc.):
 
 **[https://sandbox.dev.eduwallet.nl/](https://sandbox.dev.eduwallet.nl/)**
 
-It offers several credential types and flows useful for local wallet testing, including:
+(also linked from the Lab panel)
 
 - Pre-authorized and authorization-code issuance
 - eduID / eduPerson / Academic Base / Generic / PID style credentials
@@ -123,9 +160,6 @@ this demo’s **Scan** flow as an authenticated user.
 - **Pre-authorized** cards → Accept in the wallet (single-use codes — request a fresh offer if retrying).
 - **Authorization-code** cards (e.g. eduID) → Continue at issuer; ensure the sandbox AS allows
   `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (or point those env vars at a client the sandbox already knows).
-
-The compose stack also ships local **issuer-api2** / **verifier-api2**
-(http://localhost:7005 / http://localhost:7004) if you prefer issuing against this stack.
 
 ## Layout
 
@@ -149,11 +183,10 @@ wallet-secdsa-demo/
 
 ```text
 Browser :7115
-  └─ web-wallet  ──/wallet-api/**──►  wallet-api2 :7006
-                                          │
-                                          ├─ Postgres
-                                          └─ SECDSA lab :8080 (compose DNS: secdsa)
-Issuer :7005 / Verifier :7004  ◄── OID4VCI / OID4VP with the wallet
+  └─ web-wallet
+        ├─ /wallet-api/** ──► wallet-api2 :7006 ── Postgres + SECDSA
+        └─ /api/lab/**    ──► issuer-api2 :7005 / verifier-api2 :7004
+                              (server-only; OID4VCI/VP URLs still go via wallet-api2)
 ```
 
 - Keys are generated with `backend: "secdsa"` and `config.baseUrl: http://secdsa:8080`

@@ -201,6 +201,11 @@ export default defineNuxtConfig({
             process.env.NUXT_PUBLIC_OIDC_TOKEN_URL ||
             "https://oidc.pilot1.sram.surf.nl/token",
         walletApi2Proxy: process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
+        // Server-only Lab proxies (browser never talks to issuer/verifier directly).
+        issuerApi2InternalUrl:
+            process.env.ISSUER_API2_INTERNAL_URL || "http://issuer-api2:7005",
+        verifierApi2InternalUrl:
+            process.env.VERIFIER_API2_INTERNAL_URL || "http://verifier-api2:7004",
         public: {
             projectId: process.env.ProjectId,
             // Release tag (e.g. v0.1.0) — shown as the corner ribbon; set at image build.
@@ -229,6 +234,11 @@ export default defineNuxtConfig({
                 process.env.NUXT_PUBLIC_OID4VCI_REDIRECT_URI ||
                 process.env.OID4VCI_REDIRECT_URI ||
                 "http://localhost:7115/oid4vci/callback",
+            // Issuer user-login AS (non-secret) — Lab auth-code UI; secret stays on issuer-api2
+            issuerAsAuthorizeUrl: process.env.ISSUER_AS_AUTHORIZE_URL || "",
+            issuerAsTokenUrl: process.env.ISSUER_AS_TOKEN_URL || "",
+            issuerAsClientId: process.env.ISSUER_AS_CLIENT_ID || "",
+            labEnableAuthCode: process.env.LAB_ENABLE_AUTH_CODE || "",
         },
     },
 

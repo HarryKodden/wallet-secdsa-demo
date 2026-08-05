@@ -134,23 +134,22 @@ export async function completeAuthCodeIssuance(opts: {
         }
     }
 
-    let proofJwt: string | undefined;
-    try {
-        const proof = await $fetch<{ proofJwt: string }>(
-            `/wallet-api/wallet/${walletId}/credentials/receive/sign-proof`,
-            {
-                method: "POST",
-                body: {
-                    issuerUrl: continuation.credentialIssuerBaseUrl,
-                    nonce,
-                    did,
-                },
+    // SECDSA SoftHSM must already be unlocked; do not swallow sign failures —
+    // continuing without a proof only yields a confusing issuer invalid_proof.
+    const proof = await $fetch<{ proofJwt: string }>(
+        `/wallet-api/wallet/${walletId}/credentials/receive/sign-proof`,
+        {
+            method: "POST",
+            body: {
+                issuerUrl: continuation.credentialIssuerBaseUrl,
+                nonce,
+                did,
+                // Auth-code proofs need iss=client_id (eduID / OID4VCI); pre-auth may omit.
+                clientId: continuation.clientId,
             },
-        );
-        proofJwt = proof.proofJwt;
-    } catch (e) {
-        console.warn("sign-proof failed; retrying fetch without proof", e);
-    }
+        },
+    );
+    const proofJwt = proof.proofJwt;
 
     await $fetch(`/wallet-api/wallet/${walletId}/credentials/receive/fetch-credential`, {
         method: "POST",
@@ -175,6 +174,26 @@ export function ensureOpenIdScope(authorizationUrl: string, scope = "openid"): s
         return url.toString();
     } catch {
         return authorizationUrl;
+    }
+}
+
+/**
+ * Offer/metadata URLs use host.docker.internal so wallet-api2 can fetch them.
+ * The browser must use localhost (published Caddy ports) or the authorize hop
+ * stalls and never reaches /external_login → ISSUER_AS_*.
+ */
+export function toBrowserReachableUrl(url: string): string {
+    try {
+        const parsed = new URL(url);
+        if (parsed.hostname === "host.docker.internal") {
+            parsed.hostname = "localhost";
+            return parsed.toString();
+        }
+        return url;
+    } catch {
+        return url
+            .replace("://host.docker.internal:", "://localhost:")
+            .replace("://host.docker.internal/", "://localhost/");
     }
 }
 
@@ -211,6 +230,7 @@ export async function startAuthCodeRedirect(opts: {
     // registered scopes (e.g. wallet:read from demo templates), which eduID rejects.
     // OID4VCI selects the credential via authorization_details; OIDC needs openid.
     authorizationUrl = ensureOpenIdScope(authorizationUrl, opts.scope);
+    authorizationUrl = toBrowserReachableUrl(authorizationUrl);
 
     saveAuthCodeContinuation({
         state: result.state,

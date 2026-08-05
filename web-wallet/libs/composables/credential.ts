@@ -271,15 +271,15 @@ export function useCredential(credential: Ref<WalletCredential | null>) {
     );
     const credentialIssuerService = computed(() => manifest.value?.input?.credentialIssuer);
 
-    const isNotExpired = computed(() =>
-        jwtJson.value?.expirationDate
-            ? new Date(jwtJson.value?.expirationDate).getTime() > new Date().getTime()
-            : jwtJson.value?.validUntil
-              ? new Date(jwtJson.value?.validUntil).getTime() > new Date().getTime()
-              : jwtJson.value?.exp
-                ? jwtJson.value.exp * 1000 > Date.now()
-                : true,
+    /** Epoch ms expiry, or null if the credential has no expiry claim. */
+    const expiryAtMs = computed(() =>
+        resolveCredentialExpiryMs(jwtJson.value, normalized.value),
     );
+    const isNotExpired = computed(() => {
+        const at = expiryAtMs.value;
+        if (at == null) return true;
+        return at > Date.now();
+    });
     const issuanceDate = computed(() => {
         if (jwtJson.value?.issuanceDate) {
             return new Date(jwtJson.value?.issuanceDate).toISOString().slice(0, 10);
@@ -292,15 +292,9 @@ export function useCredential(credential: Ref<WalletCredential | null>) {
         }
     });
     const expirationDate = computed(() => {
-        if (jwtJson.value?.expirationDate) {
-            return new Date(jwtJson.value?.expirationDate).toISOString().slice(0, 10);
-        } else if (jwtJson.value?.validUntil) {
-            return new Date(jwtJson.value?.validUntil).toISOString().slice(0, 10);
-        } else if (jwtJson.value?.exp) {
-            return new Date(jwtJson.value.exp * 1000).toISOString().slice(0, 10);
-        } else {
-            return null;
-        }
+        const at = expiryAtMs.value;
+        if (at == null) return null;
+        return new Date(at).toISOString().slice(0, 10);
     });
 
     return {
@@ -326,6 +320,55 @@ function shortDid(did: string): string {
     if (!did || typeof did !== "string") return "Unknown";
     if (did.length <= 28) return did;
     return did.slice(0, 16) + "…" + did.slice(-8);
+}
+
+/**
+ * Resolve credential expiry as epoch milliseconds.
+ * Checks W3C date fields, JWT `exp`, and the issuer-signed JWT inside an SD-JWT
+ * document (`jwt~disclosures…`) when credentialData omits `exp`.
+ */
+export function resolveCredentialExpiryMs(
+    parsed: Record<string, any> | null | undefined,
+    walletCredential?: WalletCredential | null,
+): number | null {
+    const fromParsed = expiryMsFromClaims(parsed);
+    if (fromParsed != null) return fromParsed;
+
+    const document = walletCredential?.document;
+    if (typeof document !== "string" || !document.includes(".")) return null;
+
+    try {
+        // SD-JWT: issuer JWT is the first '~'-separated segment.
+        const issuerJwt = document.split("~")[0] || document;
+        const payload = parseJwt(issuerJwt);
+        if (payload && typeof payload === "object") {
+            return expiryMsFromClaims(payload as Record<string, any>);
+        }
+    } catch {
+        // ignore unparseable documents
+    }
+    return null;
+}
+
+function expiryMsFromClaims(claims: Record<string, any> | null | undefined): number | null {
+    if (!claims || typeof claims !== "object") return null;
+
+    if (claims.expirationDate) {
+        const t = Date.parse(String(claims.expirationDate));
+        if (!Number.isNaN(t)) return t;
+    }
+    if (claims.validUntil) {
+        const t = Date.parse(String(claims.validUntil));
+        if (!Number.isNaN(t)) return t;
+    }
+    if (claims.exp != null && claims.exp !== "") {
+        const exp = Number(claims.exp);
+        if (!Number.isNaN(exp)) {
+            // JWT exp is seconds; tolerate ms if clearly large.
+            return exp > 1e12 ? exp : exp * 1000;
+        }
+    }
+    return null;
 }
 
 /** Flatten mdoc claims for the detail view (wallet-api2 credentialData or classic issuerSigned). */

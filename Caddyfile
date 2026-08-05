@@ -7,12 +7,20 @@
 	reverse_proxy http://wallet-api2:7006
 }
 
+# Issuer: rewrite browser-facing redirects from host.docker.internal → localhost.
+# wallet-api2 still fetches offers via host.docker.internal (compose extra_hosts).
+# Without this, Chrome often stops after /openid4vci/authorize and never reaches
+# /external_login → configured ISSUER_AS_* (SURF/Keycloak/etc.).
 :7005 {
-	reverse_proxy http://issuer-api2:7005
+	reverse_proxy http://issuer-api2:7005 {
+		header_down Location host.docker.internal localhost
+	}
 }
 
 :7004 {
-	reverse_proxy http://verifier-api2:7004
+	reverse_proxy http://verifier-api2:7004 {
+		header_down Location host.docker.internal localhost
+	}
 }
 
 :7115 {

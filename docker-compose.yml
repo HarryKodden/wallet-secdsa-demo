@@ -54,8 +54,14 @@ services:
       DB_USERNAME: ${DB_USERNAME:-waltid}
       DB_PASSWORD: ${DB_PASSWORD:-waltid}
       SERVICE_HOST: ${SERVICE_HOST:-host.docker.internal}
+      # SoftHSM activate on PIN unlock / SIGN (WscaClient)
+      WSCA_BASE_URL: ${WSCA_INTERNAL_URL:-http://secdsa:8080}
+      WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
+      # Persist email/password accounts across wallet-api2 restarts (Postgres already holds wallets/creds)
+      WALLET2_ACCOUNT_STORE_PATH: ${WALLET2_ACCOUNT_STORE_PATH:-/data/wallet2-accounts.json}
     volumes:
       - ./wallet-api2/config:/waltid-wallet-api2/config:ro
+      - wallet-api2-accounts:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -70,6 +76,12 @@ services:
     environment:
       ISSUER_API2_PORT: "7005"
       SERVICE_HOST: ${SERVICE_HOST:-host.docker.internal}
+      # User-login AS for AUTHORIZED / authorization_code offers (authentication-service.conf)
+      ISSUER_AS_NAME: ${ISSUER_AS_NAME:-keycloak}
+      ISSUER_AS_AUTHORIZE_URL: ${ISSUER_AS_AUTHORIZE_URL:-https://keycloak.demo.walt.id/realms/mynewrealm/protocol/openid-connect/auth}
+      ISSUER_AS_TOKEN_URL: ${ISSUER_AS_TOKEN_URL:-https://keycloak.demo.walt.id/realms/mynewrealm/protocol/openid-connect/token}
+      ISSUER_AS_CLIENT_ID: ${ISSUER_AS_CLIENT_ID:-issuer_api}
+      ISSUER_AS_CLIENT_SECRET: ${ISSUER_AS_CLIENT_SECRET:-Y0DyNhF4NgpOS6VMRUtl0JtvxrRYQD4s}
     volumes:
       - ./issuer-api2/config:/waltid-issuer-api2/config:ro
     extra_hosts:
@@ -117,9 +129,21 @@ services:
       NUXT_PUBLIC_OIDC_SCOPES: ${NUXT_PUBLIC_OIDC_SCOPES:-openid email profile}
       NUXT_PUBLIC_OID4VCI_CLIENT_ID: ${OID4VCI_CLIENT_ID:-wallet-secdsa-demo}
       NUXT_PUBLIC_OID4VCI_REDIRECT_URI: ${OID4VCI_REDIRECT_URI:-http://localhost:7115/oid4vci/callback}
+      # Nitro Lab proxies → compose DNS (not browser-facing)
+      ISSUER_API2_INTERNAL_URL: ${ISSUER_API2_INTERNAL_URL:-http://issuer-api2:7005}
+      VERIFIER_API2_INTERNAL_URL: ${VERIFIER_API2_INTERNAL_URL:-http://verifier-api2:7004}
+      WALLET_API2_PROXY: ${WALLET_API2_PROXY:-http://wallet-api2:7006}
+      # Lab auth-code: mirror issuer AS (non-secret) + enable flag
+      ISSUER_AS_AUTHORIZE_URL: ${ISSUER_AS_AUTHORIZE_URL:-}
+      ISSUER_AS_TOKEN_URL: ${ISSUER_AS_TOKEN_URL:-}
+      ISSUER_AS_CLIENT_ID: ${ISSUER_AS_CLIENT_ID:-}
+      LAB_ENABLE_AUTH_CODE: ${LAB_ENABLE_AUTH_CODE:-}
     depends_on:
       - wallet-api2
       - secdsa
+      - issuer-api2
+      - verifier-api2
 
 volumes:
   postgres-data:
+  wallet-api2-accounts:

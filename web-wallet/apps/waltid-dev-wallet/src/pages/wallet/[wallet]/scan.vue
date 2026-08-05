@@ -4,9 +4,13 @@
     <div class="max-w-3xl">
       <h1 class="text-2xl font-semibold text-gray-900">Receive or present</h1>
       <p class="mt-1 text-sm text-gray-600">
-        Use the camera when the QR is on another device. On the same computer, paste the
-        link or upload a screenshot below.
+        Use the local lab for this stack’s issuer/verifier, paste a link or screenshot
+        from another tab, or scan a QR from a second device.
       </p>
+
+      <div class="mt-6">
+        <LocalLabPanel @request="startRequest" />
+      </div>
 
       <div class="mt-6">
         <ManualRequestEntry @request="startRequest" />
@@ -30,6 +34,7 @@
 import QrCodeScanner from "~/components/scan/QrCodeScanner.vue";
 import BackButton from "@waltid-web-wallet/components/buttons/BackButton.vue";
 import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
+import LocalLabPanel from "~/components/scan/LocalLabPanel.vue";
 import ManualRequestEntry from "~/components/scan/ManualRequestEntry.vue";
 import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
 import {

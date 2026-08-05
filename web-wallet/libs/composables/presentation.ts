@@ -301,7 +301,7 @@ export async function usePresentation(query: any) {
         redirect_to?: string | null;
         get_url?: string | null;
         redirectUri?: string | null;
-        transmission_success?: boolean | null;
+        transmission_success?: boolean | string | null;
         form_post_html?: string | null;
       }>(`/wallet-api/wallet/${currentWallet.value}/credentials/present`, {
         method: "POST",
@@ -310,28 +310,54 @@ export async function usePresentation(query: any) {
         },
       });
 
-      const redirect =
-        result?.redirect_to ?? result?.get_url ?? result?.redirectUri ?? null;
+      // wallet-api2 may return "" when the verifier has no successRedirectUri
+      // (typical for cross-device / lab sessions).
+      const redirect = [
+        result?.redirect_to,
+        result?.get_url,
+        result?.redirectUri,
+      ]
+        .map((v) => (typeof v === "string" ? v.trim() : ""))
+        .find(Boolean);
+
+      const transmissionFailed =
+        result?.transmission_success === false ||
+        result?.transmission_success === "false";
+
+      if (transmissionFailed) {
+        failed.value = true;
+        failMessage.value =
+          "Presentation finished but the verifier reported a transmission failure.";
+        return;
+      }
 
       if (redirect) {
-        navigateTo(redirect, {external: true});
-      } else if (result?.form_post_html) {
+        await navigateTo(redirect, {external: true});
+        return;
+      }
+
+      if (result?.form_post_html) {
         // Verifier asked for form_post — open HTML response
         const w = window.open("", "_blank");
         if (w) {
           w.document.write(result.form_post_html);
           w.document.close();
         } else {
-          window.alert("Presentation returned form_post HTML but pop-ups are blocked.");
+          window.alert(
+            "Presentation returned form_post HTML but pop-ups are blocked.",
+          );
         }
-      } else {
-        window.alert(
-          result?.transmission_success === false
-            ? "Presentation finished but verifier transmission reported failure."
-            : "Presentation successful, no redirect URL supplied.",
-        );
-        navigateTo(`/wallet/${currentWallet.value}`, {external: true});
+        return;
       }
+
+      // Success with no redirect — normal for lab / cross-device verifiers.
+      await navigateTo(
+        {
+          path: `/wallet/${currentWallet.value}`,
+          query: {presented: "1"},
+        },
+        {external: true},
+      );
     } catch (e: any) {
       failed.value = true;
       const msg =

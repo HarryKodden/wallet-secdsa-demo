@@ -104,9 +104,12 @@ onMounted(async () => {
   statusText.value = "Unlock SECDSA key for proof of possession…";
 
   try {
+    // Callback path has no `/wallet/:wallet` param; unlock must use the
+    // continuation wallet or SoftHSM stays inactive → invalid_proof.
     const {ensureUnlocked} = useSecdsaPin();
     const unlocked = await ensureUnlocked({
       title: "Enter SECDSA PIN to finish credential receipt",
+      walletId: continuation.walletId,
     });
     if (!unlocked) {
       fail("PIN unlock cancelled — credential was not fetched.");
