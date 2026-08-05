@@ -220,6 +220,15 @@ export default defineNuxtConfig({
             wscaAccountId: process.env.NUXT_PUBLIC_WSCA_ACCOUNT_ID || "citizen-42",
             // Inside compose, wallet-api2 reaches SECDSA as http://secdsa:8080
             wscaBaseUrl: process.env.NUXT_PUBLIC_WSCA_BASE_URL || "http://secdsa:8080",
+            // OID4VCI authorization_code client (separate from wallet login OIDC)
+            oid4vciClientId:
+                process.env.NUXT_PUBLIC_OID4VCI_CLIENT_ID ||
+                process.env.OID4VCI_CLIENT_ID ||
+                "wallet-secdsa-demo",
+            oid4vciRedirectUri:
+                process.env.NUXT_PUBLIC_OID4VCI_REDIRECT_URI ||
+                process.env.OID4VCI_REDIRECT_URI ||
+                "http://localhost:7115/oid4vci/callback",
         },
     },
 

@@ -99,6 +99,8 @@ services:
         NUXT_PUBLIC_OIDC_REDIRECT_URI: ${NUXT_PUBLIC_OIDC_REDIRECT_URI:-http://localhost:7115/wallet-api/auth/oidc-session}
         NUXT_OIDC_TOKEN_URL: ${NUXT_OIDC_TOKEN_URL:-https://oidc.pilot1.sram.surf.nl/token}
         NUXT_PUBLIC_OIDC_SCOPES: ${NUXT_PUBLIC_OIDC_SCOPES:-openid email profile}
+        NUXT_PUBLIC_OID4VCI_CLIENT_ID: ${OID4VCI_CLIENT_ID:-wallet-secdsa-demo}
+        NUXT_PUBLIC_OID4VCI_REDIRECT_URI: ${OID4VCI_REDIRECT_URI:-http://localhost:7115/oid4vci/callback}
         WALLET_API2_PROXY: http://wallet-api2:7006
     image: wallet-secdsa-demo/web-wallet:local
     environment:
@@ -113,6 +115,8 @@ services:
       NUXT_OIDC_TOKEN_URL: ${NUXT_OIDC_TOKEN_URL:-https://oidc.pilot1.sram.surf.nl/token}
       NUXT_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       NUXT_PUBLIC_OIDC_SCOPES: ${NUXT_PUBLIC_OIDC_SCOPES:-openid email profile}
+      NUXT_PUBLIC_OID4VCI_CLIENT_ID: ${OID4VCI_CLIENT_ID:-wallet-secdsa-demo}
+      NUXT_PUBLIC_OID4VCI_REDIRECT_URI: ${OID4VCI_REDIRECT_URI:-http://localhost:7115/oid4vci/callback}
     depends_on:
       - wallet-api2
       - secdsa
