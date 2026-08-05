@@ -97,6 +97,8 @@ echo "  3. Push tag and create GitHub release ${tag}"
 echo "  4. CI will publish:"
 echo "       ghcr.io/harrykodden/wallet-secdsa-demo/web-wallet:${tag}"
 echo "       ghcr.io/harrykodden/wallet-secdsa-demo/wallet-api2:${tag}"
+echo "       ghcr.io/harrykodden/wallet-secdsa-demo/issuer-api2:${tag}"
+echo "       ghcr.io/harrykodden/wallet-secdsa-demo/verifier-api2:${tag}"
 read -r -p "Proceed? [y/N] " ans
 case "${ans:-}" in
   y|Y|yes|YES) ;;

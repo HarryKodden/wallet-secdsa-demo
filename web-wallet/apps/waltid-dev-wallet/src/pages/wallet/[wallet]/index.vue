@@ -3,6 +3,7 @@
     <WalletPageHeader />
     <CenterMain>
       <div>
+        <AuthCodePendingBanner :wallet-id="walletId" />
         <p
           v-if="presentedBanner"
           class="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900"
@@ -83,6 +84,7 @@ import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndic
 import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
 import VerifiableCredentialCard from "@waltid-web-wallet/components/credentials/VerifiableCredentialCard.vue";
+import AuthCodePendingBanner from "@waltid-web-wallet/components/issuance/AuthCodePendingBanner.vue";
 import {fetchNormalizedCredentials} from "@waltid-web-wallet/composables/credential.ts";
 
 const config = useRuntimeConfig();

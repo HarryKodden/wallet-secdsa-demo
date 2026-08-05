@@ -35,6 +35,22 @@
       </div>
     </div>
 
+    <p
+      v-if="statusSummary"
+      class="mt-2 text-xs text-gray-600"
+      :title="statusSummary.detail"
+    >
+      WSCA:
+      <span class="font-medium">{{ statusSummary.label }}</span>
+      <button
+        type="button"
+        class="ml-2 underline text-gray-800"
+        @click="refreshStatus"
+      >
+        Refresh
+      </button>
+    </p>
+
     <ol
       class="divide-y divide-gray-100 list-decimal border rounded-2xl mt-2 px-2"
       role="list"
@@ -49,6 +65,14 @@
             <p class="mx-2 text-base font-semibold leading-6 text-gray-900">
               {{ key.algorithm || key.keyType || "key" }}
             </p>
+            <span
+              v-if="validityFor(keyIdOf(key))"
+              class="rounded-full px-2 py-0.5 text-xs font-medium"
+              :class="validityBadgeClass(validityFor(keyIdOf(key))!.valid)"
+              :title="validityFor(keyIdOf(key))!.reason"
+            >
+              {{ validityLabel(validityFor(keyIdOf(key))!.valid) }}
+            </span>
           </div>
           <div class="flex items-start gap-x-3">
             <p
@@ -76,9 +100,18 @@
 <script lang="ts" setup>
 import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
+import {
+  fetchSecdsaStatus,
+  validityBadgeClass,
+  validityLabel,
+  type SecdsaKeyValidity,
+  type SecdsaStatusResponse,
+} from "@waltid-web-wallet/composables/secdsaStatus.ts";
+import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 import {HashtagIcon, InboxArrowDownIcon, KeyIcon} from "@heroicons/vue/24/outline";
 
 const currentWallet = useCurrentWallet();
+const {defaultAccountId} = useSecdsaPin();
 
 function keyIdOf(key: any): string {
   if (!key) return "";
@@ -97,8 +130,50 @@ const {data: keys, pending, refresh} = await useAsyncData(
   },
 );
 
+const secdsaStatus = ref<SecdsaStatusResponse | null>(null);
+
+async function refreshStatus() {
+  const id = currentWallet.value;
+  if (!id) {
+    secdsaStatus.value = null;
+    return;
+  }
+  secdsaStatus.value = await fetchSecdsaStatus(id, defaultAccountId());
+}
+
+const statusByKeyId = computed(() => {
+  const map = new Map<string, SecdsaKeyValidity>();
+  for (const k of secdsaStatus.value?.keys ?? []) {
+    map.set(k.keyId, k);
+  }
+  return map;
+});
+
+function validityFor(keyId: string): SecdsaKeyValidity | undefined {
+  return statusByKeyId.value.get(keyId);
+}
+
+const statusSummary = computed(() => {
+  const s = secdsaStatus.value;
+  if (!s) return null;
+  if (!s.reachable) {
+    return {label: s.error || "unreachable", detail: s.error || ""};
+  }
+  const parts = [
+    s.activated ? "activated" : "not activated",
+    s.hasUserKey ? "has user key" : "no user key",
+    s.backend || "backend?",
+  ];
+  return {label: parts.join(" · "), detail: s.wscaPublicKeyHex || ""};
+});
+
 onMounted(() => {
   refresh();
+  refreshStatus();
+});
+
+watch(currentWallet, () => {
+  refreshStatus();
 });
 
 const keyList = computed(() => (Array.isArray(keys.value) ? keys.value : []));

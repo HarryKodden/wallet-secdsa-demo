@@ -8,6 +8,10 @@
         from another tab, or scan a QR from a second device.
       </p>
 
+      <div class="mt-4">
+        <AuthCodePendingBanner :wallet-id="currentWallet" />
+      </div>
+
       <div class="mt-6">
         <LocalLabPanel @request="startRequest" />
       </div>
@@ -36,6 +40,7 @@ import BackButton from "@waltid-web-wallet/components/buttons/BackButton.vue";
 import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import LocalLabPanel from "~/components/scan/LocalLabPanel.vue";
 import ManualRequestEntry from "~/components/scan/ManualRequestEntry.vue";
+import AuthCodePendingBanner from "@waltid-web-wallet/components/issuance/AuthCodePendingBanner.vue";
 import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
 import {
   encodeRequest,

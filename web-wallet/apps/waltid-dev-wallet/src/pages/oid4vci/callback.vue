@@ -49,9 +49,10 @@ import PageHeader from "@waltid-web-wallet/components/PageHeader.vue";
 import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
 import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 import {
+    cancelAuthCodeContinuation,
     clearAuthCodeContinuation,
     completeAuthCodeIssuance,
-    loadAuthCodeContinuation,
+    resolveAuthCodeContinuation,
 } from "@waltid-web-wallet/composables/oid4vciAuthCode.ts";
 import {useTitle} from "@vueuse/core";
 
@@ -75,6 +76,10 @@ onMounted(async () => {
   const errorDescription =
     typeof q.error_description === "string" ? q.error_description : null;
   if (error) {
+    // User denied / cancelled at the AS — clear pending session + show reason.
+    if (error === "access_denied") {
+      cancelAuthCodeContinuation("cancelled");
+    }
     fail(
       errorDescription
         ? `${error}: ${errorDescription}`
@@ -91,15 +96,28 @@ onMounted(async () => {
   }
 
   // OAuth `state` (CSRF) — not OID4VCI issuer_state
-  const continuation = loadAuthCodeContinuation(state);
-  if (!continuation) {
-    fail(
-      "No matching issuance session for this OAuth `state` (expired, already used, or mismatched). " +
+  const resolved = resolveAuthCodeContinuation(state);
+  if (!resolved.ok) {
+    const reason = resolved.reason;
+    const messages = {
+      missing:
+        "No pending issuance session (it may already have been used or cancelled). " +
         "Start again from Scan with a fresh credential offer.",
-    );
+      expired:
+        "Issuer sign-in timed out (authorization_code session is valid for 15 minutes). " +
+        "Start again from Scan with a fresh credential offer.",
+      mismatch:
+        "OAuth `state` does not match the pending issuance session. " +
+        "Start again from Scan with a fresh credential offer.",
+      invalid:
+        "Pending issuance session was corrupt and was cleared. " +
+        "Start again from Scan with a fresh credential offer.",
+    } as const;
+    fail(messages[reason]);
     return;
   }
 
+  const continuation = resolved.continuation;
   walletId.value = continuation.walletId;
   statusText.value = "Unlock SECDSA key for proof of possession…";
 

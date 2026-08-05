@@ -47,6 +47,23 @@
                         <label class="block font-medium text-gray-900">Crypto provider</label>
                         <div class="mt-1 sm:col-span-2 sm:mt-0">{{ meta?.cryptoProvider || '—' }}</div>
                     </div>
+                    <div class="sm:grid sm:grid-cols-3 sm:items-start sm:gap-4 sm:pt-2">
+                        <label class="block font-medium text-gray-900">WSCA validity</label>
+                        <div class="mt-1 sm:col-span-2 sm:mt-0">
+                          <span
+                            v-if="keyValidity"
+                            class="rounded-full px-2 py-0.5 text-xs font-medium"
+                            :class="validityBadgeClass(keyValidity.valid)"
+                            :title="keyValidity.reason"
+                          >
+                            {{ validityLabel(keyValidity.valid) }}
+                          </span>
+                          <span v-else class="text-sm text-gray-500">Checking…</span>
+                          <p v-if="keyValidity" class="mt-1 text-xs text-gray-600">
+                            {{ keyValidity.reason }}
+                          </p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -172,6 +189,13 @@ import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import BackButton from "@waltid-web-wallet/components/buttons/BackButton.vue";
 import {ArrowUpOnSquareIcon, ExclamationTriangleIcon, TrashIcon} from "@heroicons/vue/24/outline";
 import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
+import {
+  fetchSecdsaStatus,
+  validityBadgeClass,
+  validityLabel,
+  type SecdsaKeyValidity,
+} from "@waltid-web-wallet/composables/secdsaStatus.ts";
+import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 import {computed, onMounted, ref} from "vue";
 import {Switch, SwitchGroup, SwitchLabel} from "@headlessui/vue";
 
@@ -188,10 +212,12 @@ const deleting = ref(false);
 const actionError = ref("");
 
 const currentWallet = useCurrentWallet();
+const {defaultAccountId} = useSecdsaPin();
 
 const jwk = ref<any | null>(null);
 const meta = ref<any | null>(null);
 const aliasName = ref<string | null>(null);
+const keyValidity = ref<SecdsaKeyValidity | null>(null);
 
 const displayKid = computed(() => jwk.value?.kid || keyId);
 const formattedJwk = computed(() => (jwk.value ? JSON.stringify(jwk.value, null, 2) : "Loading…"));
@@ -210,6 +236,18 @@ async function loadData() {
         );
     } catch (e) {
         meta.value = null;
+    }
+    try {
+        const status = await fetchSecdsaStatus(
+            String(currentWallet.value),
+            defaultAccountId(),
+        );
+        keyValidity.value =
+            status?.keys?.find((k) => k.keyId === keyId) ??
+            status?.keys?.find((k) => k.keyId === jwk.value?.kid) ??
+            null;
+    } catch {
+        keyValidity.value = null;
     }
     try {
         const list: any[] = await $fetch(`/wallet-api/wallet/${currentWallet.value}/keys`);

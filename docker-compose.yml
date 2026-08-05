@@ -71,7 +71,9 @@ services:
         condition: service_started
 
   issuer-api2:
-    image: ${IMAGE_PREFIX:-}waltid/issuer-api2:${VERSION_TAG:-stable}
+    # Default: Docker Hub walt.id. Override with CI GHCR image, e.g.
+    # ISSUER_API2_IMAGE=ghcr.io/harrykodden/wallet-secdsa-demo/issuer-api2:latest
+    image: ${ISSUER_API2_IMAGE:-${IMAGE_PREFIX:-}waltid/issuer-api2:${VERSION_TAG:-stable}}
     env_file: .env
     environment:
       ISSUER_API2_PORT: "7005"
@@ -88,7 +90,9 @@ services:
       - "host.docker.internal:host-gateway"
 
   verifier-api2:
-    image: ${IMAGE_PREFIX:-}waltid/verifier-api2:${VERSION_TAG:-stable}
+    # Default: Docker Hub walt.id. Override with CI GHCR image, e.g.
+    # VERIFIER_API2_IMAGE=ghcr.io/harrykodden/wallet-secdsa-demo/verifier-api2:latest
+    image: ${VERIFIER_API2_IMAGE:-${IMAGE_PREFIX:-}waltid/verifier-api2:${VERSION_TAG:-stable}}
     env_file: .env
     environment:
       VERIFIER_API2_PORT: "7004"
