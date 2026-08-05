@@ -60,9 +60,16 @@ export function useSecdsaPin() {
     async function unlockWithPin(
         pin: string,
         accountId: string = defaultAccountId(),
+        walletId?: string | null,
     ): Promise<void> {
+        const id = walletId ?? currentWallet.value;
+        if (!id) {
+            throw new Error(
+                "No wallet selected — cannot unlock SECDSA (open a wallet page or pass walletId).",
+            );
+        }
         try {
-            await $fetch(`/wallet-api/wallet/${currentWallet.value}/keys/secdsa/unlock`, {
+            await $fetch(`/wallet-api/wallet/${id}/keys/secdsa/unlock`, {
                 method: "POST",
                 body: {accountId, pin},
             });
@@ -85,9 +92,12 @@ export function useSecdsaPin() {
     async function ensureUnlocked(options?: {
         accountId?: string;
         title?: string;
+        /** Required on pages without `/wallet/:wallet` (e.g. OID4VCI callback). */
+        walletId?: string | null;
     }): Promise<boolean> {
         const accountId = options?.accountId ?? defaultAccountId();
         const title = options?.title ?? "Enter SECDSA PIN to continue";
+        const walletId = options?.walletId ?? currentWallet.value;
 
         return new Promise((resolve) => {
             const modalStore = useModalStore();
@@ -106,7 +116,7 @@ export function useSecdsaPin() {
                 component: markRaw(SecdsaPinModal),
                 props: {
                     title,
-                    unlock: (pin: string) => unlockWithPin(pin, accountId),
+                    unlock: (pin: string) => unlockWithPin(pin, accountId, walletId),
                     onSubmit: () => settle(true),
                     onCancel: () => settle(false),
                 },

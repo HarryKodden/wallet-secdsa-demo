@@ -1,5 +1,7 @@
-# Build artefacts (produce with ./scripts/build-wallet-api2.sh)
+# Build artefacts (produce with ./scripts/build-api2.sh)
 wallet-api2/dist/
+issuer-api2/dist/
+verifier-api2/dist/
 web-wallet/node_modules/
 web-wallet/apps/*/.nuxt/
 web-wallet/apps/*/.output/

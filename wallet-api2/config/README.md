@@ -6,10 +6,12 @@ Educational PoC only. See repo root `NOTICE` and `README.md`.
   **`auth`** (JWT accounts + per-account wallet ownership).
 - `auth.conf` — JWT signing key for session tokens; **demo private JWK** — rotate
   before any shared deploy.
-- Accounts are stored **in-memory** in wallet-api2 today (upstream OSS). Restarting
-  the container clears passwords/accounts; wallet rows + ownership links in Postgres
-  may then look “orphaned” until users re-register. Ownership isolation still holds
-  for active sessions.
+- Auth accounts (email/password) are snapshotted to
+  `WALLET2_ACCOUNT_STORE_PATH` (compose volume `wallet-api2-accounts`, default
+  `/data/wallet2-accounts.json`) so the same `accountId` is restored after
+  `wallet-api2` restart and can still see Postgres wallets/credentials.
+  Set `WALLET2_ACCOUNT_STORE_PATH=none` to disable. SECDSA key material remains
+  in the memory WSCD and is separate from this file.
 - `oidc.conf` — reference OIDC settings; live login is in the Nuxt web-wallet
   Nitro routes (`/wallet-api/auth/oidc-*`)
 - `wallet2-persistence.conf` — JDBC to the compose `postgres` service

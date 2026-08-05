@@ -4,6 +4,8 @@
 [![GitHub release](https://img.shields.io/github/v/release/HarryKodden/wallet-secdsa-demo?label=release)](https://github.com/HarryKodden/wallet-secdsa-demo/releases/latest)
 [![GHCR web-wallet](https://img.shields.io/badge/ghcr.io-web--wallet-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fweb-wallet)
 [![GHCR wallet-api2](https://img.shields.io/badge/ghcr.io-wallet--api2-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fwallet-api2)
+[![GHCR issuer-api2](https://img.shields.io/badge/ghcr.io-issuer--api2-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fissuer-api2)
+[![GHCR verifier-api2](https://img.shields.io/badge/ghcr.io-verifier--api2-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fverifier-api2)
 
 Self-contained Docker Compose demo:
 
@@ -30,14 +32,15 @@ Self-contained Docker Compose demo:
 | wallet-api2 API auth | **Enabled** — JWT accounts; wallets are private to the logged-in account |
 | Issuer / verifier / wallet JWT keys | **Demo EC private JWKs** in config — rotate before any shared deploy |
 | Lab account / PIN | `citizen-42` / `424242` — SoftHSM-style lab defaults only (SECDSA, not walt.id login) |
+| Wallet / credential data | **Postgres** volume `postgres-data` (survives restart) |
+| Auth accounts (email/password) | File volume `wallet-api2-accounts` (`WALLET2_ACCOUNT_STORE_PATH`) |
+| SECDSA keys | Memory WSCD in `secdsa` — **not** durable across secdsa restart |
 | Secrets | Copy [`.env.example`](.env.example) → `.env`; never commit `.env` |
-| Binary build | `wallet-api2/dist/` is **not** in git — build with `./scripts/build-wallet-api2.sh` |
-| Account store | In-memory in wallet-api2 — re-register after API restart |
+| Binary build | `*/api2/dist/` is **not** in git — build with `./scripts/build-api2.sh` (wallet locally; CI builds all three) |
 
 Keep published ports on localhost. Rotate demo keys before any non-local use.
-Accounts are in-memory in wallet-api2: after `docker compose restart wallet-api2`,
-users must register/login again (new account id); prior wallet ownership links in
-Postgres stay with the old account id.
+Avoid `docker compose down -v` unless you intend to wipe Postgres and accounts.
+After restarting only `secdsa`, regenerate keys/DIDs (lab WSCD is in-memory).
 
 ## Quick start
 
@@ -104,13 +107,49 @@ via `authorization_details`, not those scopes.
 
 To **present** a credential (OID4VP), open or scan a presentation request the same way.
 
+### Local lab (issuer-api2 / verifier-api2)
+
+On **Scan**, the **Local lab** strip talks to this stack’s issuer and verifier through
+Nuxt server proxies (no browser CORS):
+
+| Action | What it does |
+|--------|----------------|
+| **Get credential** | Pre-authorized offer from issuer-api2 → normal issuance flow |
+| **Present to verifier** | DCQL request matching a credential **already in this wallet** → present flow |
+
+Lab issue defaults to **pre-authorized**. Authorization-code needs a user-login AS
+for issuer-api2 (not the same as wallet login OIDC):
+
+```bash
+# Issuer’s confidential client at your IdP (Keycloak, etc.)
+ISSUER_AS_AUTHORIZE_URL=https://keycloak.example/realms/demo/protocol/openid-connect/auth
+ISSUER_AS_TOKEN_URL=https://keycloak.example/realms/demo/protocol/openid-connect/token
+ISSUER_AS_CLIENT_ID=issuer_api
+ISSUER_AS_CLIENT_SECRET=...
+LAB_ENABLE_AUTH_CODE=true
+
+# Wallet’s public OID4VCI client (already used for sandbox auth-code)
+OID4VCI_CLIENT_ID=wallet-secdsa-demo
+OID4VCI_REDIRECT_URI=http://localhost:7115/oid4vci/callback
+```
+
+Then `docker compose up -d --force-recreate issuer-api2 web-wallet`. Without that, use
+the [eduWallet sandbox](https://sandbox.dev.eduwallet.nl/) for auth-code demos.
+
+Offer URLs may use `host.docker.internal` so wallet-api2 can fetch them inside Compose.
+The web wallet rewrites the browser authorize URL to `localhost`, and Caddy rewrites
+`Location` redirects the same way, so the flow can reach
+`/external_login` → your `ISSUER_AS_*` IdP. Register the issuer OAuth callback as
+`http://localhost:7005/openid4vci/external/oauth/callback` on that AS.
+Swagger remains at http://localhost:7005 / http://localhost:7004.
+
 ### Dev issuer: eduWallet sandbox
 
-For end-to-end testing without standing up your own issuer, use the public sandbox:
+For end-to-end testing against an external issuer (eduID-style auth-code, etc.):
 
 **[https://sandbox.dev.eduwallet.nl/](https://sandbox.dev.eduwallet.nl/)**
 
-It offers several credential types and flows useful for local wallet testing, including:
+(also linked from the Lab panel)
 
 - Pre-authorized and authorization-code issuance
 - eduID / eduPerson / Academic Base / Generic / PID style credentials
@@ -124,9 +163,6 @@ this demo’s **Scan** flow as an authenticated user.
 - **Authorization-code** cards (e.g. eduID) → Continue at issuer; ensure the sandbox AS allows
   `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (or point those env vars at a client the sandbox already knows).
 
-The compose stack also ships local **issuer-api2** / **verifier-api2**
-(http://localhost:7005 / http://localhost:7004) if you prefer issuing against this stack.
-
 ## Layout
 
 ```text
@@ -136,12 +172,15 @@ wallet-secdsa-demo/
 ├── .env.example            # template — copy to .env
 ├── LICENSE / NOTICE
 ├── scripts/
-│   ├── build-wallet-api2.sh
-│   ├── create-release.sh   # tag + GitHub release → GHCR :<tag>
+│   ├── build-api2.sh           # wallet / issuer / verifier installDist
+│   ├── build-wallet-api2.sh    # wrapper → wallet only
+│   ├── build-issuer-api2.sh
+│   ├── build-verifier-api2.sh
+│   ├── create-release.sh       # tag + GitHub release → GHCR :<tag>
 │   └── up.sh
 ├── wallet-api2/            # Dockerfile + config; dist/ built locally
-├── issuer-api2/config/
-├── verifier-api2/config/
+├── issuer-api2/            # Dockerfile + config; dist/ from CI / build-api2
+├── verifier-api2/          # Dockerfile + config; dist/ from CI / build-api2
 └── web-wallet/             # Nuxt SECDSA PIN wallet → wallet-api2
 ```
 
@@ -149,23 +188,25 @@ wallet-secdsa-demo/
 
 ```text
 Browser :7115
-  └─ web-wallet  ──/wallet-api/**──►  wallet-api2 :7006
-                                          │
-                                          ├─ Postgres
-                                          └─ SECDSA lab :8080 (compose DNS: secdsa)
-Issuer :7005 / Verifier :7004  ◄── OID4VCI / OID4VP with the wallet
+  └─ web-wallet
+        ├─ /wallet-api/** ──► wallet-api2 :7006 ── Postgres + SECDSA
+        └─ /api/lab/**    ──► issuer-api2 :7005 / verifier-api2 :7004
+                              (server-only; OID4VCI/VP URLs still go via wallet-api2)
 ```
 
 - Keys are generated with `backend: "secdsa"` and `config.baseUrl: http://secdsa:8080`
 - Before GENKEY / SIGN the web wallet prompts for the PIN and calls
   `POST /wallet/{id}/keys/secdsa/unlock`
 
-## Building wallet-api2 (SECDSA)
+## Building api2 images
 
-Stock `waltid/wallet-api2` images do **not** include the SECDSA backend. This
-demo builds a local image from `wallet-api2/dist` (gitignored — not published).
+Stock `waltid/wallet-api2` images do **not** include the SECDSA backend. Locally
+this demo builds `wallet-api2` from `wallet-api2/dist` (gitignored).
 
-`./scripts/build-wallet-api2.sh` expects:
+Issuer/verifier can stay on Docker Hub (`waltid/*:stable`) for a quick lab start,
+or use the same `installDist` + Dockerfile path (and GHCR images from CI).
+
+`./scripts/build-api2.sh` expects:
 
 | Env | Default |
 |-----|---------|
@@ -173,7 +214,7 @@ demo builds a local image from `wallet-api2/dist` (gitignored — not published)
 | `SECDSA_ADAPTER_PATH` | `~/Projects/secdsa-waltid-adapter` |
 | `JAVA_HOME` | Homebrew OpenJDK if present |
 
-CI always builds `wallet-api2` from the private deps
+CI builds **wallet-api2**, **issuer-api2**, and **verifier-api2** from the private deps
 ([waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa),
 [secdsa-waltid-adapter](https://github.com/HarryKodden/secdsa-waltid-adapter)).
 Add repository secret `DEPENDENCY_TOKEN` — a fine-grained PAT with **Contents: Read**
@@ -183,8 +224,13 @@ Optional branch overrides (repository variables): `WALTID_IDENTITY_REF`, `SECDSA
 (default `main`).
 
 ```bash
-./scripts/build-wallet-api2.sh
+./scripts/build-wallet-api2.sh          # or: ./scripts/build-api2.sh wallet
 docker compose build wallet-api2
+
+# Optional local issuer/verifier (same fork as CI):
+./scripts/build-api2.sh issuer verifier
+docker build -t wallet-secdsa-demo/issuer-api2:local ./issuer-api2
+docker build -t wallet-secdsa-demo/verifier-api2:local ./verifier-api2
 ```
 
 ## Releases & GHCR images
@@ -196,6 +242,8 @@ On a version tag (`v*`) the same images are also tagged with the release (e.g. `
 |-------|------|
 | Web wallet | `ghcr.io/harrykodden/wallet-secdsa-demo/web-wallet:<tag>` |
 | wallet-api2 (SECDSA) | `ghcr.io/harrykodden/wallet-secdsa-demo/wallet-api2:<tag>` |
+| issuer-api2 | `ghcr.io/harrykodden/wallet-secdsa-demo/issuer-api2:<tag>` |
+| verifier-api2 | `ghcr.io/harrykodden/wallet-secdsa-demo/verifier-api2:<tag>` |
 
 Create a release (suggests the next patch tag; confirm or edit):
 
@@ -255,5 +303,7 @@ docker compose down -v && docker compose up --build -d
   of the *bridge*, not the API account store).
   Register redirect URI `http://localhost:7115/wallet-api/auth/oidc-session` and set
   `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` in `.env`.
-- Issuer/verifier images are pulled from Docker Hub (`waltid/issuer-api2:stable`, `waltid/verifier-api2:stable`).
+- Compose defaults issuer/verifier to Docker Hub (`waltid/*:stable`). Point
+  `ISSUER_API2_IMAGE` / `VERIFIER_API2_IMAGE` at the GHCR images above to run
+  the same builds CI publishes.
 - Upstream walt.id sources: [waltid-identity](https://github.com/walt-id/waltid-identity) (Apache-2.0).

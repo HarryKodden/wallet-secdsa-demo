@@ -180,6 +180,13 @@ export function useCurrentWallet(): WritableComputedRef<string | null> {
     const route = useRoute();
     const stored = useState<string | null>("wallet", () => null);
 
+    // Full-page AS redirects (e.g. /oid4vci/callback) drop route `:wallet`;
+    // restore last selection from localStorage so PIN unlock / API calls work.
+    if (import.meta.client && !stored.value) {
+        const fromLs = localStorage.getItem(LOCAL_WALLET_KEY);
+        if (fromLs) stored.value = fromLs;
+    }
+
     return computed({
         get() {
             const fromRoute = route.params["wallet"];
@@ -190,6 +197,10 @@ export function useCurrentWallet(): WritableComputedRef<string | null> {
         },
         set(v: string | null) {
             stored.value = v;
+            if (import.meta.client) {
+                if (v) localStorage.setItem(LOCAL_WALLET_KEY, v);
+                else localStorage.removeItem(LOCAL_WALLET_KEY);
+            }
         },
     });
 }

@@ -3,6 +3,14 @@
     <WalletPageHeader />
     <CenterMain>
       <div>
+        <AuthCodePendingBanner :wallet-id="walletId" />
+        <p
+          v-if="presentedBanner"
+          class="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900"
+          role="status"
+        >
+          {{ presentedBanner }}
+        </p>
         <span v-if="credentials && credentials.length > 0" class="font-semibold"
           >Your credentials ({{ credentials.length }}):</span
         >
@@ -76,16 +84,28 @@ import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndic
 import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
 import VerifiableCredentialCard from "@waltid-web-wallet/components/credentials/VerifiableCredentialCard.vue";
+import AuthCodePendingBanner from "@waltid-web-wallet/components/issuance/AuthCodePendingBanner.vue";
 import {fetchNormalizedCredentials} from "@waltid-web-wallet/composables/credential.ts";
 
 const config = useRuntimeConfig();
 
 const route = useRoute();
+const router = useRouter();
 const currentWallet = useCurrentWallet();
 
 const walletId = computed(
   () => currentWallet.value ?? route.params.wallet ?? "",
 );
+
+const presentedFlag = Array.isArray(route.query.presented)
+  ? route.query.presented[0]
+  : route.query.presented;
+const presentedBanner =
+  presentedFlag === "1"
+    ? "Presentation succeeded."
+    : presentedFlag === "0"
+      ? "Presentation failed at the verifier."
+      : "";
 
 const {
   data: credentials,
@@ -107,6 +127,11 @@ const {
 
 onMounted(() => {
   refresh();
+  if (route.query.presented != null) {
+    const nextQuery = { ...route.query };
+    delete nextQuery.presented;
+    router.replace({ query: nextQuery });
+  }
 });
 
 useHead({

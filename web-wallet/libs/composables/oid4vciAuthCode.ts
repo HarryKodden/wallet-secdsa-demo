@@ -8,6 +8,7 @@
  */
 
 export const OID4VCI_AUTH_CODE_STORAGE_KEY = "oid4vci.authCode.continuation";
+export const OID4VCI_AUTH_CODE_NOTICE_KEY = "oid4vci.authCode.notice";
 export const OID4VCI_AUTH_CODE_TTL_MS = 15 * 60 * 1000;
 
 export type Oid4vciAuthCodeContinuation = {
@@ -26,6 +27,31 @@ export type Oid4vciAuthCodeContinuation = {
     createdAt: number;
 };
 
+export type AuthCodeSessionNotice = {
+    kind: "expired" | "cancelled";
+    walletId: string | null;
+    credentialConfigurationId: string | null;
+    at: number;
+};
+
+export type AuthCodeContinuationLookup =
+    | { status: "none" }
+    | {
+          status: "pending";
+          continuation: Oid4vciAuthCodeContinuation;
+          expiresAt: number;
+          remainingMs: number;
+      }
+    | {
+          status: "expired";
+          continuation: Oid4vciAuthCodeContinuation;
+      }
+    | { status: "invalid" };
+
+export type AuthCodeContinuationResolve =
+    | { ok: true; continuation: Oid4vciAuthCodeContinuation }
+    | { ok: false; reason: "missing" | "expired" | "mismatch" | "invalid" };
+
 function storage(): Storage | null {
     if (!import.meta.client) return null;
     try {
@@ -35,33 +61,129 @@ function storage(): Storage | null {
     }
 }
 
-export function saveAuthCodeContinuation(value: Oid4vciAuthCodeContinuation): void {
-    const s = storage();
-    if (!s) throw new Error("sessionStorage unavailable — cannot continue authorization_code flow");
-    s.setItem(OID4VCI_AUTH_CODE_STORAGE_KEY, JSON.stringify(value));
-}
-
-export function loadAuthCodeContinuation(expectedState?: string): Oid4vciAuthCodeContinuation | null {
-    const s = storage();
-    if (!s) return null;
-    const raw = s.getItem(OID4VCI_AUTH_CODE_STORAGE_KEY);
-    if (!raw) return null;
+function parseContinuation(raw: string): Oid4vciAuthCodeContinuation | null {
     try {
         const parsed = JSON.parse(raw) as Oid4vciAuthCodeContinuation;
         if (!parsed?.state || !parsed.credentialIssuerBaseUrl || !parsed.walletId) return null;
-        if (Date.now() - parsed.createdAt > OID4VCI_AUTH_CODE_TTL_MS) {
-            clearAuthCodeContinuation();
-            return null;
-        }
-        if (expectedState != null && parsed.state !== expectedState) return null;
+        if (typeof parsed.createdAt !== "number") return null;
         return parsed;
     } catch {
         return null;
     }
 }
 
+function saveNotice(notice: AuthCodeSessionNotice): void {
+    storage()?.setItem(OID4VCI_AUTH_CODE_NOTICE_KEY, JSON.stringify(notice));
+}
+
+function noticeFromContinuation(
+    kind: AuthCodeSessionNotice["kind"],
+    continuation: Oid4vciAuthCodeContinuation | null,
+): AuthCodeSessionNotice {
+    return {
+        kind,
+        walletId: continuation?.walletId ?? null,
+        credentialConfigurationId: continuation?.credentialConfigurationId ?? null,
+        at: Date.now(),
+    };
+}
+
+export function saveAuthCodeContinuation(value: Oid4vciAuthCodeContinuation): void {
+    const s = storage();
+    if (!s) throw new Error("sessionStorage unavailable — cannot continue authorization_code flow");
+    s.removeItem(OID4VCI_AUTH_CODE_NOTICE_KEY);
+    s.setItem(OID4VCI_AUTH_CODE_STORAGE_KEY, JSON.stringify(value));
+}
+
+/** Inspect pending auth-code session without requiring OAuth `state`. */
+export function peekAuthCodeContinuation(): AuthCodeContinuationLookup {
+    const s = storage();
+    if (!s) return { status: "none" };
+    const raw = s.getItem(OID4VCI_AUTH_CODE_STORAGE_KEY);
+    if (!raw) return { status: "none" };
+    const continuation = parseContinuation(raw);
+    if (!continuation) return { status: "invalid" };
+    const expiresAt = continuation.createdAt + OID4VCI_AUTH_CODE_TTL_MS;
+    const remainingMs = expiresAt - Date.now();
+    if (remainingMs <= 0) return { status: "expired", continuation };
+    return { status: "pending", continuation, expiresAt, remainingMs };
+}
+
+/**
+ * Load continuation for the callback. Expired sessions are cleared and recorded
+ * as a notice so the wallet home can explain the timeout.
+ */
+export function resolveAuthCodeContinuation(expectedState?: string): AuthCodeContinuationResolve {
+    const peeked = peekAuthCodeContinuation();
+    if (peeked.status === "none") return { ok: false, reason: "missing" };
+    if (peeked.status === "invalid") {
+        clearAuthCodeContinuation();
+        return { ok: false, reason: "invalid" };
+    }
+    if (peeked.status === "expired") {
+        saveNotice(noticeFromContinuation("expired", peeked.continuation));
+        clearAuthCodeContinuation();
+        return { ok: false, reason: "expired" };
+    }
+    if (expectedState != null && peeked.continuation.state !== expectedState) {
+        return { ok: false, reason: "mismatch" };
+    }
+    return { ok: true, continuation: peeked.continuation };
+}
+
+/** @deprecated Prefer {@link resolveAuthCodeContinuation} for distinct error reasons. */
+export function loadAuthCodeContinuation(expectedState?: string): Oid4vciAuthCodeContinuation | null {
+    const resolved = resolveAuthCodeContinuation(expectedState);
+    return resolved.ok ? resolved.continuation : null;
+}
+
 export function clearAuthCodeContinuation(): void {
     storage()?.removeItem(OID4VCI_AUTH_CODE_STORAGE_KEY);
+}
+
+/** User cancelled waiting for AS login (or UI dismissed an expired session). */
+export function cancelAuthCodeContinuation(kind: "cancelled" | "expired" = "cancelled"): void {
+    const peeked = peekAuthCodeContinuation();
+    const continuation =
+        peeked.status === "pending" || peeked.status === "expired" ? peeked.continuation : null;
+    saveNotice(noticeFromContinuation(kind, continuation));
+    clearAuthCodeContinuation();
+}
+
+export function peekAuthCodeNotice(): AuthCodeSessionNotice | null {
+    const s = storage();
+    if (!s) return null;
+    const raw = s.getItem(OID4VCI_AUTH_CODE_NOTICE_KEY);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw) as AuthCodeSessionNotice;
+    } catch {
+        return null;
+    }
+}
+
+export function clearAuthCodeNotice(): void {
+    storage()?.removeItem(OID4VCI_AUTH_CODE_NOTICE_KEY);
+}
+
+/**
+ * One-shot notice after cancel/timeout.
+ * When [walletId] is set, only consume a notice for that wallet (or wallet-less).
+ */
+export function consumeAuthCodeNotice(walletId?: string | null): AuthCodeSessionNotice | null {
+    const notice = peekAuthCodeNotice();
+    if (!notice) return null;
+    if (walletId && notice.walletId && notice.walletId !== walletId) return null;
+    clearAuthCodeNotice();
+    return notice;
+}
+
+export function formatAuthCodeRemaining(remainingMs: number): string {
+    const totalSec = Math.max(0, Math.ceil(remainingMs / 1000));
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    if (m <= 0) return `${s}s`;
+    return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
 export function resolveOid4vciClientConfig(runtimeConfig: {
@@ -134,23 +256,22 @@ export async function completeAuthCodeIssuance(opts: {
         }
     }
 
-    let proofJwt: string | undefined;
-    try {
-        const proof = await $fetch<{ proofJwt: string }>(
-            `/wallet-api/wallet/${walletId}/credentials/receive/sign-proof`,
-            {
-                method: "POST",
-                body: {
-                    issuerUrl: continuation.credentialIssuerBaseUrl,
-                    nonce,
-                    did,
-                },
+    // SECDSA SoftHSM must already be unlocked; do not swallow sign failures —
+    // continuing without a proof only yields a confusing issuer invalid_proof.
+    const proof = await $fetch<{ proofJwt: string }>(
+        `/wallet-api/wallet/${walletId}/credentials/receive/sign-proof`,
+        {
+            method: "POST",
+            body: {
+                issuerUrl: continuation.credentialIssuerBaseUrl,
+                nonce,
+                did,
+                // Auth-code proofs need iss=client_id (eduID / OID4VCI); pre-auth may omit.
+                clientId: continuation.clientId,
             },
-        );
-        proofJwt = proof.proofJwt;
-    } catch (e) {
-        console.warn("sign-proof failed; retrying fetch without proof", e);
-    }
+        },
+    );
+    const proofJwt = proof.proofJwt;
 
     await $fetch(`/wallet-api/wallet/${walletId}/credentials/receive/fetch-credential`, {
         method: "POST",
@@ -175,6 +296,26 @@ export function ensureOpenIdScope(authorizationUrl: string, scope = "openid"): s
         return url.toString();
     } catch {
         return authorizationUrl;
+    }
+}
+
+/**
+ * Offer/metadata URLs use host.docker.internal so wallet-api2 can fetch them.
+ * The browser must use localhost (published Caddy ports) or the authorize hop
+ * stalls and never reaches /external_login → ISSUER_AS_*.
+ */
+export function toBrowserReachableUrl(url: string): string {
+    try {
+        const parsed = new URL(url);
+        if (parsed.hostname === "host.docker.internal") {
+            parsed.hostname = "localhost";
+            return parsed.toString();
+        }
+        return url;
+    } catch {
+        return url
+            .replace("://host.docker.internal:", "://localhost:")
+            .replace("://host.docker.internal/", "://localhost/");
     }
 }
 
@@ -211,6 +352,7 @@ export async function startAuthCodeRedirect(opts: {
     // registered scopes (e.g. wallet:read from demo templates), which eduID rejects.
     // OID4VCI selects the credential via authorization_details; OIDC needs openid.
     authorizationUrl = ensureOpenIdScope(authorizationUrl, opts.scope);
+    authorizationUrl = toBrowserReachableUrl(authorizationUrl);
 
     saveAuthCodeContinuation({
         state: result.state,

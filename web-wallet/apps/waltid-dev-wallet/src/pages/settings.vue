@@ -54,6 +54,66 @@
         </p>
       </section>
 
+      <section v-if="showAsConfig" class="mt-8">
+        <h2 class="text-lg font-semibold text-gray-900">OID4VCI authorization server</h2>
+        <p class="mt-2 text-sm text-gray-600">
+          Configured for local issuer authorization-code offers (Lab). Issuer IdP
+          client and wallet OID4VCI client are different OAuth clients.
+        </p>
+        <dl class="mt-3 divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white text-sm">
+          <div class="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4">
+            <dt class="font-medium text-gray-500">Lab auth-code</dt>
+            <dd class="sm:col-span-2 text-gray-900">
+              <span
+                class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                :class="
+                  labConfig?.authCodeEnabled
+                    ? 'bg-emerald-100 text-emerald-900'
+                    : 'bg-gray-100 text-gray-700'
+                "
+              >
+                {{ labConfig?.authCodeEnabled ? "Enabled" : "Disabled" }}
+              </span>
+            </dd>
+          </div>
+          <div class="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4">
+            <dt class="font-medium text-gray-500">Issuer AS authorize URL</dt>
+            <dd class="sm:col-span-2 break-all font-mono text-gray-900">
+              {{ labConfig?.issuerAs?.authorizeUrl || "—" }}
+            </dd>
+          </div>
+          <div class="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4">
+            <dt class="font-medium text-gray-500">Issuer AS token URL</dt>
+            <dd class="sm:col-span-2 break-all font-mono text-gray-900">
+              {{ labConfig?.issuerAs?.tokenUrl || "—" }}
+            </dd>
+          </div>
+          <div class="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4">
+            <dt class="font-medium text-gray-500">Issuer AS client ID</dt>
+            <dd class="sm:col-span-2 font-mono text-gray-900">
+              {{ labConfig?.issuerAs?.clientId || "—" }}
+            </dd>
+          </div>
+          <div class="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4">
+            <dt class="font-medium text-gray-500">Wallet OID4VCI client ID</dt>
+            <dd class="sm:col-span-2 font-mono text-gray-900">
+              {{ labConfig?.oid4vci?.clientId || "—" }}
+            </dd>
+          </div>
+          <div class="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4">
+            <dt class="font-medium text-gray-500">Wallet redirect URI</dt>
+            <dd class="sm:col-span-2 break-all font-mono text-gray-900">
+              {{ labConfig?.oid4vci?.redirectUri || "—" }}
+            </dd>
+          </div>
+        </dl>
+        <p class="mt-3 text-sm text-gray-600">
+          Set via <code class="rounded bg-gray-100 px-1">ISSUER_AS_*</code> and
+          <code class="rounded bg-gray-100 px-1">OID4VCI_*</code> in
+          <code class="rounded bg-gray-100 px-1">.env</code> (secret is not shown).
+        </p>
+      </section>
+
       <section class="mt-8">
         <h2 class="text-lg font-semibold text-gray-900">This wallet</h2>
         <p v-if="!currentWallet" class="mt-2 text-sm text-gray-600">
@@ -142,6 +202,38 @@ const wscaBaseUrl = computed(
   () => (config.public.wscaBaseUrl as string | undefined) || "http://secdsa:8080",
 );
 const pinHint = "424242";
+
+type LabConfig = {
+  authCodeEnabled: boolean;
+  issuerAs: {
+    authorizeUrl: string | null;
+    tokenUrl: string | null;
+    clientId: string | null;
+    isDemoDefault: boolean;
+  };
+  oid4vci: {
+    clientId: string;
+    redirectUri: string;
+  };
+};
+
+const labConfig = ref<LabConfig | null>(null);
+
+/** Show when a non-demo issuer AS is configured or Lab auth-code is enabled. */
+const showAsConfig = computed(() => {
+  const c = labConfig.value;
+  if (!c) return false;
+  if (c.authCodeEnabled) return true;
+  return Boolean(c.issuerAs?.authorizeUrl) && !c.issuerAs?.isDemoDefault;
+});
+
+onMounted(async () => {
+  try {
+    labConfig.value = await $fetch<LabConfig>("/api/lab/config");
+  } catch {
+    labConfig.value = null;
+  }
+});
 
 useHead({title: "Settings - walt.id"});
 </script>
