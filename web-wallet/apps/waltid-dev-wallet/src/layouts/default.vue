@@ -264,6 +264,16 @@
                         active ? 'bg-gray-100' : '',
                         'block px-4 py-2 text-sm text-gray-700',
                       ]"
+                      to="/devices"
+                      >Mobile devices
+                    </NuxtLink>
+                  </MenuItem>
+                  <MenuItem v-slot="{ active }">
+                    <NuxtLink
+                      :class="[
+                        active ? 'bg-gray-100' : '',
+                        'block px-4 py-2 text-sm text-gray-700',
+                      ]"
                       to="/settings"
                       >Settings
                     </NuxtLink>
@@ -301,6 +311,7 @@ import {
     Bars3CenterLeftIcon,
     ClipboardDocumentListIcon,
     CogIcon,
+    DevicePhoneMobileIcon,
     FingerPrintIcon,
     GlobeAltIcon,
     HomeIcon,
@@ -386,6 +397,7 @@ const navigation = computed(() => [
 ]);
 const secondaryNavigation = [
   { name: "Select wallet", href: "/", icon: ListBulletIcon },
+  { name: "Mobile devices", href: "/devices", icon: DevicePhoneMobileIcon },
   { name: "Settings", href: "/settings", icon: CogIcon },
   { name: "Help", href: "/help", icon: QuestionMarkCircleIcon },
   { name: "Privacy", href: "/help/privacy", icon: ShieldCheckIcon },

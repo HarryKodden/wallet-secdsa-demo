@@ -3,6 +3,23 @@
     <WalletPageHeader />
     <CenterMain>
       <div>
+        <section
+          class="mb-6 flex flex-col gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div class="min-w-0">
+            <h2 class="text-base font-semibold text-gray-900">Connect a mobile device</h2>
+            <p class="mt-1 text-sm text-gray-700">
+              Pair your phone to this account — independent of which wallet you open.
+            </p>
+          </div>
+          <NuxtLink
+            class="inline-flex shrink-0 items-center justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500"
+            to="/devices"
+          >
+            Show pairing QR
+          </NuxtLink>
+        </section>
+
         <div class="mb-2 flex items-center justify-between gap-3">
           <h2 class="text-lg font-semibold">Select wallet</h2>
           <button

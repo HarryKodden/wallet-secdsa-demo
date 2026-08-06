@@ -24,105 +24,83 @@
                     Completing SURF sign-in…
                 </p>
                 <p v-else class="mt-3 text-sm leading-6 text-slate-300">
-                    Use your email and password.
-                    <NuxtLink class="font-medium text-cyan-300 hover:text-cyan-200" to="/signup">
-                        Create an account
-                    </NuxtLink>
-                    if you do not have one yet.
+                    Sign in with SURF (OIDC). Then connect a phone from
+                    <span class="text-cyan-200">Settings → Mobile devices</span>
+                    — the app unlocks with biometrics only.
                 </p>
 
-                <div v-if="!isOidcLogin" class="mt-8">
+                <div v-if="!isOidcLogin" class="mt-8 space-y-4">
                     <button
-                        class="flex w-full items-center justify-center rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white shadow-sm ring-1 ring-inset ring-white/15 transition hover:bg-white/15"
+                        class="flex w-full items-center justify-center rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300"
                         type="button"
                         @click="connectOidc"
                     >
                         Sign in with SURF
                     </button>
-                </div>
-
-                <div v-if="!isOidcLogin" class="my-7 flex items-center gap-4 text-xs uppercase tracking-[0.2em] text-slate-400">
-                    <span class="h-px flex-1 bg-white/10" />
-                    <span>or email</span>
-                    <span class="h-px flex-1 bg-white/10" />
-                </div>
-
-                <form v-if="!isOidcLogin" class="space-y-5" @submit.prevent="login">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-200" for="email">
-                            <span class="flex items-center gap-2">
-                                <EnvelopeIcon class="h-5 w-5" />
-                                Email address
-                            </span>
-                        </label>
-                        <div class="mt-2">
-                            <input
-                                id="email"
-                                v-model="emailInput"
-                                autocomplete="email"
-                                autofocus
-                                class="block w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/40"
-                                name="email"
-                                required
-                                type="email"
-                            />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-medium text-slate-200" for="password">
-                            <span class="flex items-center gap-2">
-                                <IdentificationIcon class="h-5 w-5" />
-                                Password
-                            </span>
-                        </label>
-                        <div class="mt-2">
-                            <input
-                                id="password"
-                                v-model="passwordInput"
-                                autocomplete="current-password"
-                                class="block w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/40"
-                                name="password"
-                                required
-                                type="password"
-                            />
-                        </div>
-                    </div>
-
                     <p v-if="errorMessage" class="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
                         {{ errorMessage }}
                     </p>
+                </div>
 
-                    <button
-                        class="flex w-full items-center justify-center rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-70"
-                        :disabled="isLoggingIn"
-                        type="submit"
-                    >
-                        <span>Sign in</span>
-                        <svg
-                            v-if="isLoggingIn"
-                            class="ml-2 h-5 w-5 animate-spin text-slate-950"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            xmlns="http://www.w3.org/2000/svg"
+                <details v-if="!isOidcLogin" class="mt-8 rounded-xl border border-white/10 bg-white/5 p-4">
+                    <summary class="cursor-pointer text-sm font-medium text-slate-300">
+                        Lab / advanced — email &amp; password
+                    </summary>
+                    <form class="mt-4 space-y-5" @submit.prevent="login">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-200" for="email">
+                                <span class="flex items-center gap-2">
+                                    <EnvelopeIcon class="h-5 w-5" />
+                                    Email address
+                                </span>
+                            </label>
+                            <div class="mt-2">
+                                <input
+                                    id="email"
+                                    v-model="emailInput"
+                                    autocomplete="email"
+                                    class="block w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/40"
+                                    name="email"
+                                    required
+                                    type="email"
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-slate-200" for="password">
+                                <span class="flex items-center gap-2">
+                                    <IdentificationIcon class="h-5 w-5" />
+                                    Password
+                                </span>
+                            </label>
+                            <div class="mt-2">
+                                <input
+                                    id="password"
+                                    v-model="passwordInput"
+                                    autocomplete="current-password"
+                                    class="block w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/40"
+                                    name="password"
+                                    required
+                                    type="password"
+                                />
+                            </div>
+                        </div>
+
+                        <button
+                            class="flex w-full items-center justify-center rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-inset ring-white/15 transition hover:bg-white/15 disabled:opacity-70"
+                            :disabled="isLoggingIn"
+                            type="submit"
                         >
-                            <circle
-                                class="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                stroke-width="4"
-                            />
-                            <path
-                                class="opacity-75"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                fill="currentColor"
-                            />
-                        </svg>
-                        <ArrowRightOnRectangleIcon v-else class="ml-2 h-5 w-5" />
-                    </button>
-                </form>
+                            <span>Sign in with email</span>
+                            <ArrowRightOnRectangleIcon class="ml-2 h-5 w-5" />
+                        </button>
+                        <p class="text-xs text-slate-400">
+                            Prefer SURF for normal use. Email remains for local lab accounts.
+                            <NuxtLink class="text-cyan-300 hover:text-cyan-200" to="/signup">Create account</NuxtLink>
+                        </p>
+                    </form>
+                </details>
 
                 <p v-if="isOidcLogin && errorMessage" class="mt-6 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
                     {{ errorMessage }}

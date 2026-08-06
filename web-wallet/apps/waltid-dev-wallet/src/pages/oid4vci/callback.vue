@@ -27,6 +27,13 @@
         <p class="font-semibold">Could not finish authorization_code issuance</p>
         <p class="mt-2 whitespace-pre-wrap">{{ errorMessage }}</p>
         <div class="mt-4 flex flex-wrap gap-3">
+          <a
+            v-if="mobileDeepLink"
+            class="font-medium text-indigo-700 underline"
+            :href="mobileDeepLink"
+          >
+            Open in mobile wallet
+          </a>
           <NuxtLink
             v-if="walletId"
             class="font-medium text-indigo-700 underline"
@@ -56,18 +63,29 @@ import {
 } from "@waltid-web-wallet/composables/oid4vciAuthCode.ts";
 import {useTitle} from "@vueuse/core";
 
+const MOBILE_CALLBACK_SCHEME = "primerwallet://oid4vci/callback";
+
 const route = useRoute();
 const phase = ref<"working" | "error">("working");
 const statusText = ref("Validating issuer callback…");
 const errorMessage = ref("");
 const walletId = ref<string | null>(null);
+const mobileDeepLink = ref<string | null>(null);
 
 useTitle("OID4VCI callback - walt.id");
+
+function buildMobileDeepLink(): string | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (!params.get("code") && !params.get("error")) return null;
+  return `${MOBILE_CALLBACK_SCHEME}?${params.toString()}`;
+}
 
 function fail(message: string) {
   phase.value = "error";
   errorMessage.value = message;
   clearAuthCodeContinuation();
+  mobileDeepLink.value = buildMobileDeepLink();
 }
 
 onMounted(async () => {
@@ -98,6 +116,21 @@ onMounted(async () => {
   // OAuth `state` (CSRF) — not OID4VCI issuer_state
   const resolved = resolveAuthCodeContinuation(state);
   if (!resolved.ok) {
+    // Mobile started the flow (no web sessionStorage) — hand off to the app.
+    const deepLink = buildMobileDeepLink();
+    if (deepLink && resolved.reason === "missing") {
+      statusText.value = "Opening mobile wallet…";
+      mobileDeepLink.value = deepLink;
+      window.location.assign(deepLink);
+      // If the scheme is not handled, show a manual link.
+      setTimeout(() => {
+        fail(
+          "No web issuance session — this callback looks like a mobile return. " +
+            "Tap “Open in mobile wallet”, or paste the URL into the app.",
+        );
+      }, 800);
+      return;
+    }
     const reason = resolved.reason;
     const messages = {
       missing:

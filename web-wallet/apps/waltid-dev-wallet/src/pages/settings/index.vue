@@ -16,6 +16,20 @@
         </p>
       </section>
 
+      <section class="mt-8 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+        <h2 class="text-lg font-semibold text-gray-900">Mobile devices</h2>
+        <p class="mt-1 text-sm text-gray-700">
+          Sign in here with SURF (OIDC), then show a QR code for the phone to pair.
+          The mobile app unlocks with biometrics only — no password on the device.
+        </p>
+        <NuxtLink
+          class="mt-3 inline-flex rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+          to="/devices"
+        >
+          Connect a mobile device
+        </NuxtLink>
+      </section>
+
       <section class="mt-8">
         <h2 class="text-lg font-semibold text-gray-900">SECDSA SoftHSM</h2>
         <dl class="mt-3 divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white text-sm">
