@@ -62,6 +62,14 @@
             </div>
             <div class="flex flex-none items-center gap-x-4">
               <button
+                type="button"
+                class="rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-red-700 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-50 disabled:opacity-60"
+                :disabled="deletingId === wallet.id"
+                @click="onDelete(wallet.id, wallet.name)"
+              >
+                {{ deletingId === wallet.id ? "Deleting…" : "Delete" }}
+              </button>
+              <button
                 @click="setWallet(wallet.id)"
                 class="rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
               >
@@ -81,6 +89,7 @@ import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import WalletPageHeader from "@waltid-web-wallet/components/WalletPageHeader.vue";
 import {
   createNewWallet,
+  deleteWallet,
   listWallets,
   setWallet,
 } from "@waltid-web-wallet/composables/accountWallet.ts";
@@ -92,6 +101,7 @@ useHead({
 
 const wallets = await listWallets();
 const creating = ref(false);
+const deletingId = ref(null);
 const error = ref("");
 
 async function onCreate() {
@@ -103,6 +113,21 @@ async function onCreate() {
     error.value = e?.data?.message || e?.message || String(e);
   } finally {
     creating.value = false;
+  }
+}
+
+async function onDelete(walletId, name) {
+  error.value = "";
+  if (!confirm(`Delete wallet ${name}? Only empty wallets (no credentials) can be deleted.`)) {
+    return;
+  }
+  deletingId.value = walletId;
+  try {
+    await deleteWallet(walletId);
+  } catch (e) {
+    error.value = e?.data?.message || e?.message || String(e);
+  } finally {
+    deletingId.value = null;
   }
 }
 

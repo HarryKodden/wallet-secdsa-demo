@@ -63,6 +63,51 @@ export async function createNewWallet(open = true): Promise<string> {
     return walletId;
 }
 
+async function credentialCount(walletId: string): Promise<number> {
+    const list = await $fetch<unknown[]>(`/wallet-api/wallet/${walletId}/credentials`);
+    return Array.isArray(list) ? list.length : 0;
+}
+
+/**
+ * Delete a wallet only when it has no credentials.
+ * Non-empty wallets must have credentials removed first.
+ */
+export async function deleteWallet(walletId: string): Promise<void> {
+    const count = await credentialCount(walletId);
+    if (count > 0) {
+        throw new Error(
+            count === 1
+                ? "This wallet still has 1 credential. Delete it first, then remove the wallet."
+                : `This wallet still has ${count} credentials. Delete them first, then remove the wallet.`,
+        );
+    }
+
+    await $fetch(`/wallet-api/wallet/${encodeURIComponent(walletId)}`, {
+        method: "DELETE",
+    });
+
+    const listings = useState<WalletListings>("wallet2.listings", () => ({
+        account: "local",
+        wallets: [],
+    }));
+    const remaining = (listings.value?.wallets ?? []).filter((w) => w.id !== walletId);
+    listings.value = {
+        account: listings.value?.account ?? "local",
+        wallets: remaining,
+    };
+
+    if (import.meta.client) {
+        const stored = localStorage.getItem(LOCAL_WALLET_KEY);
+        if (stored === walletId) {
+            localStorage.removeItem(LOCAL_WALLET_KEY);
+        }
+    }
+    const current = useCurrentWallet();
+    if (current.value === walletId) {
+        current.value = remaining[0]?.id ?? null;
+    }
+}
+
 /**
  * List / auto-create wallets on wallet-api2.
  * With auth enabled, GET /wallet returns only wallets linked to the JWT account.

@@ -28,6 +28,14 @@
                 </div>
                 <div class="flex flex-none items-center gap-x-4">
                     <button
+                        type="button"
+                        class="rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-red-700 shadow-sm ring-1 ring-inset ring-red-200 hover:bg-red-50 disabled:opacity-60"
+                        :disabled="deletingId === wallet.id"
+                        @click="onDelete(wallet)"
+                    >
+                        {{ deletingId === wallet.id ? "Deleting…" : "Delete" }}
+                    </button>
+                    <button
                         class="flex items-center gap-1 rounded-md bg-white px-2.5 py-1.5 text-base font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
                         @click="selectWalletListing(wallet)">
                         Select wallet
@@ -39,10 +47,13 @@
     </ul>
     <LoadingIndicator v-else />
     <p v-if="wallets && wallets.length == 0" class="mt-2">No wallets.</p>
+    <p v-if="deleteError" class="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-800">
+        {{ deleteError }}
+    </p>
 </template>
 
 <script lang="ts" setup>
-import {setWallet, type WalletListing} from "../../composables/accountWallet.ts";
+import {deleteWallet, setWallet, type WalletListing} from "../../composables/accountWallet.ts";
 import LoadingIndicator from "../../components/loading/LoadingIndicator.vue";
 import {navigateTo} from "nuxt/app";
 
@@ -51,13 +62,34 @@ const props = defineProps<{
     wallets: WalletListing[]
 }>();
 
-//const wallets = (await listWallets())?.value?.wallets;
+const emit = defineEmits<{
+    deleted: [walletId: string];
+}>();
+
+const deletingId = ref<string | null>(null);
+const deleteError = ref("");
 
 function selectWalletListing(wallet: WalletListing) {
     setWallet(wallet.id, undefined)
     const dynamicUrl = props.useUrl(wallet)
     console.log("Dynamic url: ", dynamicUrl)
     navigateTo(dynamicUrl)
+}
+
+async function onDelete(wallet: WalletListing) {
+    deleteError.value = "";
+    if (!confirm(`Delete wallet ${wallet.name}? Only empty wallets (no credentials) can be deleted.`)) {
+        return;
+    }
+    deletingId.value = wallet.id;
+    try {
+        await deleteWallet(wallet.id);
+        emit("deleted", wallet.id);
+    } catch (e: any) {
+        deleteError.value = e?.data?.message || e?.message || String(e);
+    } finally {
+        deletingId.value = null;
+    }
 }
 
 </script>

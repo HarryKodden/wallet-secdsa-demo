@@ -20,6 +20,7 @@
     <WalletListing
       :use-url="(wallet) => `/wallet/${wallet.id}`"
       :wallets="walletList"
+      @deleted="error = ''"
     />
   </CenterMain>
 </template>
