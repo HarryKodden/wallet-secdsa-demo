@@ -313,7 +313,6 @@ import {
     CogIcon,
     DevicePhoneMobileIcon,
     FingerPrintIcon,
-    GlobeAltIcon,
     HomeIcon,
     KeyIcon,
     ListBulletIcon,
@@ -371,11 +370,6 @@ const navigation = computed(() => [
         name: "Credentials",
         href: `/wallet/${currentWallet.value}`,
         icon: HomeIcon,
-      },
-      {
-        name: "Tokens",
-        href: `/wallet/${currentWallet.value}/settings/tokens`,
-        icon: GlobeAltIcon,
       },
       {
         name: "DIDs",
