@@ -130,9 +130,11 @@ services:
       NUXT_PUBLIC_OIDC_SCOPES: ${NUXT_PUBLIC_OIDC_SCOPES:-openid email profile}
       NUXT_PUBLIC_OID4VCI_CLIENT_ID: ${OID4VCI_CLIENT_ID:-wallet-secdsa-demo}
       NUXT_PUBLIC_OID4VCI_REDIRECT_URI: ${OID4VCI_REDIRECT_URI:-http://localhost:7115/oid4vci/callback}
-      # Nitro Lab proxies → compose DNS (not browser-facing)
-      ISSUER_API2_INTERNAL_URL: ${ISSUER_API2_INTERNAL_URL:-http://issuer-api2:7005}
-      VERIFIER_API2_INTERNAL_URL: ${VERIFIER_API2_INTERNAL_URL:-http://verifier-api2:7004}
+      # Local lab UI — empty/unset hides the Scan lab panels. Set to enable:
+      #   ISSUER_API2_INTERNAL_URL=http://issuer-api2:7005
+      #   VERIFIER_API2_INTERNAL_URL=http://verifier-api2:7004
+      ISSUER_API2_INTERNAL_URL: ${ISSUER_API2_INTERNAL_URL:-}
+      VERIFIER_API2_INTERNAL_URL: ${VERIFIER_API2_INTERNAL_URL:-}
       WALLET_API2_PROXY: ${WALLET_API2_PROXY:-http://wallet-api2:7006}
       # Lab auth-code: mirror issuer AS (non-secret) + enable flag
       ISSUER_AS_AUTHORIZE_URL: ${ISSUER_AS_AUTHORIZE_URL:-}

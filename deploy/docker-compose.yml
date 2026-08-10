@@ -44,7 +44,8 @@ services:
     env_file: .env
     environment:
       WALLET_API2_PORT: "7006"
-      POSTGRES_DB_HOST: postgres
+      # Must resolve on wallet-api2's Docker network (compose service name, or external DB host).
+      POSTGRES_DB_HOST: ${POSTGRES_DB_HOST:-postgres}
       DB_NAME: ${DB_NAME:-waltid}
       DB_USERNAME: ${DB_USERNAME:-waltid}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -100,10 +101,14 @@ services:
       PORT: "7115"
       NUXT_PUBLIC_APP_VERSION: ${VERSION_TAG}
       NUXT_PUBLIC_WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
+      # SoftHSM inside the stack (Nitro server → secdsa). Not wallet-api2.
       NUXT_PUBLIC_WSCA_BASE_URL: ${WSCA_INTERNAL_URL:-http://secdsa:8080}
       NUXT_PUBLIC_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       NUXT_PUBLIC_OIDC_AUTHORIZE_URL: ${NUXT_PUBLIC_OIDC_AUTHORIZE_URL:-}
+      # IdP redirect_uri — must be the public wallet URL (register at IdP).
       NUXT_PUBLIC_OIDC_REDIRECT_URI: ${NUXT_PUBLIC_OIDC_REDIRECT_URI:-}
+      # Post-login browser redirect base (defaults to localhost → breaks Portainer).
+      NUXT_PUBLIC_OIDC_PUBLIC_BASE_URL: ${NUXT_PUBLIC_OIDC_PUBLIC_BASE_URL:-}
       NUXT_OIDC_TOKEN_URL: ${NUXT_OIDC_TOKEN_URL:-}
       NUXT_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
       NUXT_PUBLIC_OIDC_SCOPES: ${NUXT_PUBLIC_OIDC_SCOPES:-openid email profile}
@@ -112,6 +117,8 @@ services:
       # Empty = hide Local lab UI. Set to compose DNS to enable issue / present panels.
       ISSUER_API2_INTERNAL_URL: ${ISSUER_API2_INTERNAL_URL:-}
       VERIFIER_API2_INTERNAL_URL: ${VERIFIER_API2_INTERNAL_URL:-}
+      # Nitro → wallet-api2 on the Docker network (service DNS). Not SoftHSM.
+      # If your Portainer service is renamed, match that hostname here.
       WALLET_API2_PROXY: ${WALLET_API2_PROXY:-http://wallet-api2:7006}
       ISSUER_AS_AUTHORIZE_URL: ${ISSUER_AS_AUTHORIZE_URL:-}
       ISSUER_AS_TOKEN_URL: ${ISSUER_AS_TOKEN_URL:-}

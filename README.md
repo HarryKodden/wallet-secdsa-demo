@@ -112,9 +112,8 @@ To **present** a credential (OID4VP), open or scan a presentation request the sa
 ### Local lab (issuer-api2 / verifier-api2)
 
 On **Scan**, the **Local lab** strip is shown only when the corresponding internal
-URLs are set (`ISSUER_API2_INTERNAL_URL` / `VERIFIER_API2_INTERNAL_URL`). Local
-`docker compose` injects those by default; omit them (e.g. in `deploy/`) to hide
-the panels. Proxies are server-side only (no browser CORS):
+URLs are set (`ISSUER_API2_INTERNAL_URL` / `VERIFIER_API2_INTERNAL_URL`). Leave
+them unset to hide the panels. Proxies are server-side only (no browser CORS):
 
 | Action | What it does |
 |--------|----------------|

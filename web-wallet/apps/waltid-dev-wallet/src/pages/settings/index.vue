@@ -39,10 +39,6 @@
             <dd class="sm:col-span-2 font-mono text-gray-900 break-all">{{ accountId }}</dd>
           </div>
           <div class="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4">
-            <dt class="font-medium text-gray-500">WSCA base URL</dt>
-            <dd class="sm:col-span-2 break-all font-mono text-gray-900">{{ wscaBaseUrl }}</dd>
-          </div>
-          <div class="grid grid-cols-1 gap-1 px-4 py-3 sm:grid-cols-3 sm:gap-4">
             <dt class="font-medium text-gray-500">Unlock method</dt>
             <dd class="sm:col-span-2 text-gray-900">
               <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-900">
@@ -51,16 +47,6 @@
             </dd>
           </div>
         </dl>
-        <p class="mt-3 text-sm text-gray-600">
-          SoftHSM lab UI:
-          <a
-            class="font-medium text-blue-600 underline hover:text-blue-700"
-            href="http://localhost:18080"
-            rel="noopener noreferrer"
-            target="_blank"
-          >http://localhost:18080</a>
-        </p>
-
       </section>
 
       <section v-if="showAsConfig" class="mt-8">
@@ -232,27 +218,6 @@
         </ul>
       </section>
 
-      <section class="mt-8 mb-10">
-        <h2 class="text-lg font-semibold text-gray-900">API endpoints</h2>
-        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-gray-700">
-          <li>
-            Wallet API Swagger:
-            <a class="text-blue-600 underline" href="http://localhost:7006/swagger" target="_blank" rel="noopener noreferrer">:7006</a>
-          </li>
-          <li>
-            Issuer API Swagger:
-            <a class="text-blue-600 underline" href="http://localhost:7005/swagger" target="_blank" rel="noopener noreferrer">:7005</a>
-          </li>
-          <li>
-            Verifier API Swagger:
-            <a class="text-blue-600 underline" href="http://localhost:7004/swagger" target="_blank" rel="noopener noreferrer">:7004</a>
-          </li>
-        </ul>
-        <p class="mt-4 text-sm text-gray-600">
-          Need a walkthrough?
-          <NuxtLink class="font-medium text-blue-600 underline" to="/help">Open Help</NuxtLink>
-        </p>
-      </section>
     </div>
   </CenterMain>
 </template>

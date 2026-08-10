@@ -22,11 +22,6 @@
             Open <strong>Scan</strong> to receive a credential offer or share a presentation.
           </li>
         </ol>
-        <p class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          Lab defaults: account <code>citizen-42</code>, PIN <code>424242</code>.
-          SoftHSM UI:
-          <a class="underline" href="http://localhost:18080" target="_blank" rel="noopener noreferrer">http://localhost:18080</a>
-        </p>
       </section>
 
       <section class="mt-8">
