@@ -4,8 +4,9 @@
     <div class="max-w-3xl">
       <h1 class="text-2xl font-semibold text-gray-900">Receive or present</h1>
       <p class="mt-1 text-sm text-gray-600">
-        Use the local lab for this stack’s issuer/verifier, paste a link or screenshot
-        from another tab, or scan a QR from a second device.
+        Paste a link or screenshot from another tab, or scan a QR from a second
+        device. When a local issuer/verifier is configured, the lab panel appears
+        above.
       </p>
 
       <div class="mt-4">

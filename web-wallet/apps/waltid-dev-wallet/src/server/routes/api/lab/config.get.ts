@@ -1,5 +1,13 @@
+import {
+    isIssuerLabConfigured,
+    isVerifierLabConfigured,
+} from "../../../utils/labApis";
+
 /**
  * Lab AS / auth-code configuration (non-secret) for the Scan Lab UI.
+ *
+ * Issuer / verifier Lab panels are shown only when
+ * ISSUER_API2_INTERNAL_URL / VERIFIER_API2_INTERNAL_URL are set.
  *
  * Issuer user-login AS (ISSUER_AS_*) is separate from the wallet OID4VCI client
  * (OID4VCI_CLIENT_ID / redirect). See .env.example.
@@ -31,8 +39,14 @@ export default defineEventHandler(() => {
         !explicitlyDisabled &&
         (explicitlyEnabled || (Boolean(authorizeUrl) && !demoKeycloak));
 
+    const issuerConfigured = isIssuerLabConfigured();
+    const verifierConfigured = isVerifierLabConfigured();
+
     return {
-        authCodeEnabled,
+        issuerConfigured,
+        verifierConfigured,
+        enabled: issuerConfigured || verifierConfigured,
+        authCodeEnabled: issuerConfigured && authCodeEnabled,
         issuerAs: {
             authorizeUrl: authorizeUrl || null,
             tokenUrl: tokenUrl || null,

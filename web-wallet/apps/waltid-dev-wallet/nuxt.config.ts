@@ -205,10 +205,9 @@ export default defineNuxtConfig({
             "https://oidc.pilot1.sram.surf.nl/token",
         walletApi2Proxy: process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
         // Server-only Lab proxies (browser never talks to issuer/verifier directly).
-        issuerApi2InternalUrl:
-            process.env.ISSUER_API2_INTERNAL_URL || "http://issuer-api2:7005",
-        verifierApi2InternalUrl:
-            process.env.VERIFIER_API2_INTERNAL_URL || "http://verifier-api2:7004",
+        // Empty = Lab UI/API disabled; local compose injects service DNS when present.
+        issuerApi2InternalUrl: process.env.ISSUER_API2_INTERNAL_URL || "",
+        verifierApi2InternalUrl: process.env.VERIFIER_API2_INTERNAL_URL || "",
         public: {
             projectId: process.env.ProjectId,
             // Release tag (e.g. v0.1.0) — shown as the corner ribbon; set at image build.

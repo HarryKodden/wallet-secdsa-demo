@@ -1,11 +1,14 @@
 <template>
-  <div class="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
+  <div
+    v-if="labConfig?.enabled"
+    class="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4"
+  >
     <div class="flex flex-wrap items-start justify-between gap-2">
       <div>
         <h2 class="text-base font-semibold text-gray-900">Local lab</h2>
         <p class="mt-1 text-sm text-gray-600">
-          Create an offer or presentation request from this stack’s issuer-api2 /
-          verifier-api2, then continue in the normal wallet flow.
+          Create an offer or presentation request from this stack’s configured
+          issuer-api2 / verifier-api2, then continue in the normal wallet flow.
         </p>
       </div>
       <a
@@ -18,8 +21,19 @@
       </a>
     </div>
 
-    <div class="mt-4 grid gap-4 sm:grid-cols-2">
-      <form class="space-y-3" @submit.prevent="issue">
+    <div
+      class="mt-4 grid gap-4"
+      :class="
+        labConfig.issuerConfigured && labConfig.verifierConfigured
+          ? 'sm:grid-cols-2'
+          : 'sm:grid-cols-1'
+      "
+    >
+      <form
+        v-if="labConfig.issuerConfigured"
+        class="space-y-3"
+        @submit.prevent="issue"
+      >
         <h3 class="text-sm font-semibold text-gray-900">Get local credential</h3>
         <label class="block text-xs font-medium text-gray-700" for="lab-profile">
           Profile
@@ -111,7 +125,11 @@
         </button>
       </form>
 
-      <form class="space-y-3" @submit.prevent="verify">
+      <form
+        v-if="labConfig.verifierConfigured"
+        class="space-y-3"
+        @submit.prevent="verify"
+      >
         <h3 class="text-sm font-semibold text-gray-900">Present to local verifier</h3>
         <label class="block text-xs font-medium text-gray-700" for="lab-credential">
           Credential in this wallet
@@ -182,6 +200,9 @@ type WalletOption = {
 };
 
 type LabConfig = {
+  enabled: boolean;
+  issuerConfigured: boolean;
+  verifierConfigured: boolean;
   authCodeEnabled: boolean;
   issuerAs: {
     authorizeUrl: string | null;
@@ -231,7 +252,19 @@ const asHost = computed(() => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadLabConfig(), loadProfiles(), loadWalletCredentials()]);
+  await loadLabConfig();
+  const cfg = labConfig.value;
+  if (!cfg?.enabled) {
+    loadingProfiles.value = false;
+    loadingCredentials.value = false;
+    return;
+  }
+  const tasks: Promise<void>[] = [];
+  if (cfg.issuerConfigured) tasks.push(loadProfiles());
+  else loadingProfiles.value = false;
+  if (cfg.verifierConfigured) tasks.push(loadWalletCredentials());
+  else loadingCredentials.value = false;
+  await Promise.all(tasks);
 });
 
 async function loadLabConfig() {

@@ -1,24 +1,64 @@
 /**
  * Server-only helpers for the local issuer-api2 / verifier-api2 Lab proxies.
+ *
+ * Lab is opt-in: only enabled when ISSUER_API2_INTERNAL_URL /
+ * VERIFIER_API2_INTERNAL_URL are set (compose may inject defaults for local demos).
  */
 
-export function issuerApi2Base(): string {
+function readConfiguredUrl(...candidates: Array<string | undefined>): string {
+    for (const candidate of candidates) {
+        const value = String(candidate || "").trim();
+        if (value) return value.replace(/\/$/, "");
+    }
+    return "";
+}
+
+export function configuredIssuerApi2Base(): string {
     const config = useRuntimeConfig();
-    // Prefer container env so compose overrides win over build-time defaults.
-    return String(
-        process.env.ISSUER_API2_INTERNAL_URL ||
-            config.issuerApi2InternalUrl ||
-            "http://issuer-api2:7005",
-    ).replace(/\/$/, "");
+    return readConfiguredUrl(
+        process.env.ISSUER_API2_INTERNAL_URL,
+        config.issuerApi2InternalUrl as string | undefined,
+    );
+}
+
+export function configuredVerifierApi2Base(): string {
+    const config = useRuntimeConfig();
+    return readConfiguredUrl(
+        process.env.VERIFIER_API2_INTERNAL_URL,
+        config.verifierApi2InternalUrl as string | undefined,
+    );
+}
+
+export function isIssuerLabConfigured(): boolean {
+    return Boolean(configuredIssuerApi2Base());
+}
+
+export function isVerifierLabConfigured(): boolean {
+    return Boolean(configuredVerifierApi2Base());
+}
+
+export function issuerApi2Base(): string {
+    const base = configuredIssuerApi2Base();
+    if (!base) {
+        throw createError({
+            statusCode: 503,
+            statusMessage:
+                "Local lab issuer is not configured (set ISSUER_API2_INTERNAL_URL)",
+        });
+    }
+    return base;
 }
 
 export function verifierApi2Base(): string {
-    const config = useRuntimeConfig();
-    return String(
-        process.env.VERIFIER_API2_INTERNAL_URL ||
-            config.verifierApi2InternalUrl ||
-            "http://verifier-api2:7004",
-    ).replace(/\/$/, "");
+    const base = configuredVerifierApi2Base();
+    if (!base) {
+        throw createError({
+            statusCode: 503,
+            statusMessage:
+                "Local lab verifier is not configured (set VERIFIER_API2_INTERNAL_URL)",
+        });
+    }
+    return base;
 }
 
 export async function labFetch(url: string, init?: RequestInit): Promise<Response> {
