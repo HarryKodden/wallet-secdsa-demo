@@ -42,12 +42,12 @@ export function useSecdsaPin() {
     }
 
     /**
-     * Validates the PIN via the Nitro unlock route (calls SECDSA activate).
+     * Validates the PIN via the Nitro unlock route (SoftHSM Protocol 4 / instruct).
      * On success: stores the PIN in Pinia and, if a PRF key is available,
      * encrypts it and persists the ciphertext to the server.
      *
-     * @param mode  "setup" = new account (slot not provisioned yet, format-only check)
-     *              "unlock" = existing account (validated against live SECDSA slot)
+     * @param mode  "setup" = SoftHSM not activated yet (first PIN locks the account)
+     *              "unlock" = SoftHSM already activated (PIN must match; never choose a new one)
      */
     async function unlockWithPin(
         pin: string,
@@ -210,9 +210,10 @@ export function useSecdsaPin() {
     }
 
     /**
-     * After OIDC login: if the WSCA account for this `sub` is not activated yet,
-     * prompt for a 6-digit PIN and run Protocol 4 activate via unlock.
-     * Returns false only if the user cancels setup when required.
+     * After OIDC login:
+     * - SoftHSM not activated → setup (choose PIN; Protocol 4 locks it to the account)
+     * - SoftHSM activated → unlock with the existing PIN if not already in session
+     * Returns false only if the user cancels when a PIN is required.
      */
     async function ensureWscaInitialized(options?: {
         accountId?: string;
@@ -221,18 +222,28 @@ export function useSecdsaPin() {
         const accountId = options?.accountId ?? defaultAccountId();
         const walletId = await resolveWalletId(options?.walletId);
         const status = await fetchSecdsaStatus(walletId, accountId);
+        const securityStore = useSecurityStore();
 
-        // Unknown / not activated → first-time PIN setup.
-        const needsSetup = !status?.activated;
-        if (!needsSetup) {
-            return true;
+        // Only first SoftHSM activation may choose a PIN.
+        if (status?.activated === false) {
+            return ensureUnlocked({
+                accountId,
+                walletId,
+                mode: "setup",
+                title: "Choose a 6-digit PIN to initialise SECDSA",
+            });
+        }
+
+        // Activated (or status unknown): PIN is locked — unlock if not already cached.
+        if (securityStore.secdsaPin && securityStore.secdsaPinAccountId === accountId) {
+            return ensureUnlocked({accountId, walletId, mode: "unlock"});
         }
 
         return ensureUnlocked({
             accountId,
             walletId,
-            mode: "setup",
-            title: "Choose a 6-digit PIN to initialise SECDSA",
+            mode: "unlock",
+            title: "Enter your SECDSA PIN to continue",
         });
     }
 

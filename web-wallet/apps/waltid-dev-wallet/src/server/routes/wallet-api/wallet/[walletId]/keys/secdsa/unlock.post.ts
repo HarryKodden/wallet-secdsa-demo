@@ -4,19 +4,49 @@ import {useRuntimeConfig} from "#imports";
 /**
  * POST /wallet-api/wallet/:walletId/keys/secdsa/unlock
  *
- * Validates the user-supplied PIN against the SECDSA service for the given
- * accountId and activates (or re-activates) that account's slot.
+ * SoftHSM PIN gate (shared by web + mobile via Nitro):
+ *   1. POST /api/wallets/add    — ensure account exists
+ *   2. POST /api/wallets/select — select account; read `activated`
+ *   3a. Not activated → POST /api/activate {pin}  (Protocol 4 — locks PIN to account)
+ *   3b. Already activated → POST /api/instruct {pin, op:ECHO} to verify PIN
  *
- * SECDSA API is session/selection-based:
- *   1. POST /api/wallets/add   {id}   — ensure the wallet account exists (idempotent)
- *   2. POST /api/wallets/select {id}  — make it the "current" account
- *   3. POST /api/activate {pin}       — Protocol 4: first call provisions + activates;
- *                                       subsequent calls re-activate the session.
- *      "already activated" response = success (session already open).
+ * SoftHSM quirk: /api/activate on an already-activated account returns
+ * "already activated" for ANY pin (including wrong ones). Never treat that as
+ * PIN proof — always verify with /api/instruct when activated.
  *
- * This route takes precedence over the catch-all wallet-api2 proxy because
- * Nitro matches more-specific paths first.
+ * mode "setup" is only allowed when SoftHSM reports activated=false.
+ * mode "unlock" always requires SoftHSM to accept the PIN.
  */
+
+type SecdsaState = {
+    activated?: boolean;
+    error?: string;
+    accounts?: Array<{id?: string; activated?: boolean; active?: boolean}>;
+    wsca?: {blocked?: boolean};
+};
+
+async function secdsaJson(url: string, body: unknown): Promise<{ok: boolean; status: number; data: SecdsaState}> {
+    const res = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as SecdsaState;
+    return {ok: res.ok, status: res.status, data};
+}
+
+function errText(data: SecdsaState): string {
+    return (data.error ?? "").toString();
+}
+
+function isWrongPin(msg: string): boolean {
+    return /wrong\s*pin|incorrect\s*pin|not activated with this pin|message authentication failed/i.test(msg);
+}
+
+function isBlocked(msg: string, data: SecdsaState): boolean {
+    return /block/i.test(msg) || data.wsca?.blocked === true;
+}
+
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event);
     const wscaBaseUrl: string =
@@ -36,67 +66,79 @@ export default defineEventHandler(async (event) => {
     if (!accountId) {
         throw createError({statusCode: 400, statusMessage: "accountId is required"});
     }
-
-    if (mode === "setup" && !/^\d{4,}$/.test(pin)) {
+    if (!/^\d{4,}$/.test(pin)) {
         throw createError({statusCode: 400, statusMessage: "PIN must be numeric digits (min 4)"});
     }
 
-    // -------------------------------------------------------------------------
-    // Call SECDSA using the correct stateful API:
-    //   step 1 — ensure account exists (idempotent)
-    //   step 2 — select it as the active account
-    //   step 3 — run Protocol 4 activation with the supplied PIN
-    // -------------------------------------------------------------------------
     try {
-        // Step 1: add (no-op if already present)
+        // Step 1: ensure account exists
         await fetch(`${wscaBaseUrl}/api/wallets/add`, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({id: accountId}),
-        }).catch(() => {/* ignore — failure means it already exists */});
+        }).catch(() => {/* ignore — may already exist */});
 
-        // Step 2: select
-        const selectRes = await fetch(`${wscaBaseUrl}/api/wallets/select`, {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({id: accountId}),
-        });
-        if (!selectRes.ok) {
+        // Step 2: select + read activation state
+        const select = await secdsaJson(`${wscaBaseUrl}/api/wallets/select`, {id: accountId});
+        if (!select.ok && !select.data.accounts) {
             throw createError({statusCode: 502, statusMessage: "SECDSA: account selection failed"});
         }
 
-        // Step 3: activate (Protocol 4)
-        const activateRes = await fetch(`${wscaBaseUrl}/api/activate`, {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({pin}),
+        const accountRow = select.data.accounts?.find((a) => a.id === accountId);
+        const activated = accountRow?.activated === true || select.data.activated === true;
+
+        // Setup is only for first Protocol 4 activation — never overwrite an existing PIN.
+        if (mode === "setup" && activated) {
+            throw createError({
+                statusCode: 409,
+                statusMessage:
+                    "SoftHSM account already activated — PIN is locked. Enter the existing PIN (unlock), do not choose a new one.",
+            });
+        }
+
+        if (!activated) {
+            // Step 3a: Protocol 4 — first activate locks PIN to this account
+            const activate = await secdsaJson(`${wscaBaseUrl}/api/activate`, {pin});
+            const msg = errText(activate.data);
+
+            if (activate.ok && !msg) {
+                return {ok: true, wsca: "activated", mode: "setup"};
+            }
+            // Race: another client activated between select and activate
+            if (/already.?activ/i.test(msg)) {
+                // Fall through to instruct verification with the supplied PIN
+            } else if (isBlocked(msg, activate.data)) {
+                throw createError({statusCode: 401, statusMessage: msg || "SoftHSM wallet blocked"});
+            } else if (isWrongPin(msg) || !activate.ok) {
+                throw createError({
+                    statusCode: 401,
+                    statusMessage: msg || "Incorrect PIN",
+                });
+            } else {
+                throw createError({statusCode: 401, statusMessage: msg || "SECDSA activation failed"});
+            }
+        }
+
+        // Step 3b: account already activated — verify PIN via instruct (ECHO).
+        // /api/activate returns "already activated" for ANY pin; it is not a PIN check.
+        const verify = await secdsaJson(`${wscaBaseUrl}/api/instruct`, {
+            pin,
+            op: "ECHO",
+            data: "pin-check",
         });
-        const activateBody = await activateRes.json().catch(() => ({}));
-        const errMsg = (activateBody as {error?: string})?.error ?? "";
+        const vMsg = errText(verify.data);
 
-        if (activateRes.ok || /already.?activ/i.test(errMsg)) {
-            return {ok: true, wsca: "activated"};
+        if (verify.ok && !vMsg) {
+            return {ok: true, wsca: "activated", mode: "unlock"};
         }
-
-        // PIN-blocked — surface the exact message
-        if (/block/i.test(errMsg)) {
-            throw createError({statusCode: 401, statusMessage: errMsg});
+        if (isBlocked(vMsg, verify.data)) {
+            throw createError({statusCode: 401, statusMessage: vMsg || "SoftHSM wallet blocked"});
         }
-
-        // In setup mode, a non-fatal SECDSA error defers activation to GENKEY
-        if (mode === "setup") {
-            console.info(`[unlock/setup] SECDSA activate deferred (${activateRes.status}: ${errMsg})`);
-            return {ok: true, wsca: "pending"};
-        }
-
-        // Unlock mode: wrong PIN → 401 so the modal shows the error
         throw createError({
             statusCode: 401,
-            statusMessage: errMsg || "Incorrect PIN",
+            statusMessage: isWrongPin(vMsg) ? "Incorrect PIN" : (vMsg || "Incorrect PIN"),
         });
-
     } catch (err: any) {
-        // Re-throw known H3 errors (our own createError calls above)
         if (err?.statusCode) throw err;
         throw createError({statusCode: 502, statusMessage: "SECDSA service unavailable"});
     }

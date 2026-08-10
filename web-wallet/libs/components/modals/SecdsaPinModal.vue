@@ -22,13 +22,14 @@
             <template v-if="accountHint">
               (<code class="break-all">{{ accountHint }}</code>).
             </template>
-            You will need this PIN later to unlock signing and key generation.
+            This PIN is locked to the account — web and mobile must use the same PIN.
           </template>
           <template v-else>
-            Enter your 6-digit SoftHSM PIN to unlock SECDSA operations
+            Enter the SoftHSM PIN already locked to this account
             <template v-if="accountHint">
-              for <code class="break-all">{{ accountHint }}</code>.
+              (<code class="break-all">{{ accountHint }}</code>).
             </template>
+            You cannot choose a new PIN once the account is activated.
           </template>
         </p>
       </div>
