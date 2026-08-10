@@ -135,7 +135,7 @@ import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 
 const loading = ref(false);
 const response = ref("");
-const {promptPin, unlockWithPin, defaultAccountId, defaultBaseUrl} = useSecdsaPin();
+const {promptPin, defaultAccountId, defaultBaseUrl} = useSecdsaPin();
 
 const options = ref([
     {
@@ -300,10 +300,10 @@ async function generateKey() {
             .replace("://localhost:", "://host.docker.internal:")
             .replace("://127.0.0.1:", "://host.docker.internal:");
         const pin = await promptPin(
-            "Enter the SECDSA lab PIN for this account (default lab account citizen-42 uses 424242)",
+            "Enter the SECDSA PIN for this account",
+            {accountId, walletId: currentWallet.value},
         );
         if (!pin) return;
-        await unlockWithPin(pin, accountId);
         body.config = {baseUrl, accountId, pin};
     } else {
         // For other types, just include the config directly

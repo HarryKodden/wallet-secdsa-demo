@@ -47,7 +47,12 @@ export default defineEventHandler(async (event) => {
     // confirmed PRF support during registration).
     const prfCapable =
         (body?.clientExtensionResults?.prf?.enabled === true) ||
+        (body?.clientExtensionResults?.prf?.results !== undefined && body?.clientExtensionResults?.prf?.results !== null) ||
         (verification.registrationInfo.authenticatorExtensionResults as any)?.prf?.enabled === true;
+
+    console.info("[register/finish] clientExtensionResults.prf =",
+        JSON.stringify(body?.clientExtensionResults?.prf ?? null));
+    console.info("[register/finish] prfCapable =", prfCapable);
 
     const label = typeof body?.label === "string" && body.label.trim()
         ? body.label.trim()

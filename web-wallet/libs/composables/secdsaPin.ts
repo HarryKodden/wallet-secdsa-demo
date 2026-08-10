@@ -6,12 +6,17 @@ import {createNewWallet} from "./accountWallet.ts";
 import {useRuntimeConfig} from "nuxt/app";
 import {useUserStore} from "../stores/user.ts";
 import {fetchSecdsaStatus} from "./secdsaStatus.ts";
+import {useSecurityStore} from "../stores/security.ts";
+import {encryptPin} from "./webauthnPrf.ts";
 
 /**
  * SECDSA SoftHSM PIN helpers for the educational web-wallet clone.
  *
+ * PIN security tiers (best → fallback):
+ *   1. PRF-decrypted from server blob (loaded on login, silent — no modal)
+ *   2. User entry via modal (validated inline; result encrypted + persisted if PRF key available)
+ *
  * OIDC users: WSCA account id = OIDC `sub` (session.wscaAccountId / auth.wsca cookie).
- * Lab email login: falls back to NUXT_PUBLIC_WSCA_ACCOUNT_ID (citizen-42).
  */
 
 export function useSecdsaPin() {
@@ -22,7 +27,8 @@ export function useSecdsaPin() {
     function defaultAccountId(): string {
         const fromUser = (userStore.user as {wscaAccountId?: string} | undefined)?.wscaAccountId;
         if (fromUser && fromUser.trim()) return fromUser.trim();
-        return (config.public.wscaAccountId as string | undefined) || "citizen-42";
+        console.warn("[secdsaPin] No WSCA account ID available — user must sign in with OIDC first.");
+        return "";
     }
 
     function defaultBaseUrl(): string {
@@ -35,10 +41,56 @@ export function useSecdsaPin() {
         return createNewWallet(false);
     }
 
-    /** Prompt the user for a PIN (modal). Returns null if cancelled. */
+    /**
+     * Validates the PIN via the Nitro unlock route (calls SECDSA activate).
+     * On success: stores the PIN in Pinia and, if a PRF key is available,
+     * encrypts it and persists the ciphertext to the server.
+     *
+     * @param mode  "setup" = new account (slot not provisioned yet, format-only check)
+     *              "unlock" = existing account (validated against live SECDSA slot)
+     */
+    async function unlockWithPin(
+        pin: string,
+        accountId: string = defaultAccountId(),
+        walletId?: string | null,
+        mode: "setup" | "unlock" = "unlock",
+    ): Promise<void> {
+        const id = await resolveWalletId(walletId);
+        await $fetch(`/wallet-api/wallet/${id}/keys/secdsa/unlock`, {
+            method: "POST",
+            body: {accountId, pin, mode},
+        });
+
+        // PIN is now validated — cache it in memory for this session.
+        const securityStore = useSecurityStore();
+        securityStore.setSecdsaPin(pin, accountId);
+
+        // If a PRF key is available, encrypt the PIN and persist the blob so
+        // future logins can skip the modal entirely (tier-1 path).
+        if (securityStore.prfKey) {
+            try {
+                const blob = await encryptPin(securityStore.prfKey, pin);
+                await $fetch("/wallet-api/auth/webauthn/wsca-pin", {
+                    method: "POST",
+                    body: {accountId, blob},
+                });
+            } catch (e) {
+                // Non-fatal: PIN is still cached in-memory for this session.
+                console.warn("[secdsa] Failed to persist encrypted PIN:", e);
+            }
+        }
+    }
+
+    /**
+     * Prompt the user for a PIN (modal).
+     * When `walletId` is provided the modal validates the PIN inline against
+     * the SECDSA service before resolving — wrong PINs show an error and the
+     * modal stays open for retry.
+     * Returns null if the user cancels.
+     */
     function promptPin(
         title = "Enter SECDSA PIN",
-        options?: {mode?: "unlock" | "setup"; accountId?: string},
+        options?: {mode?: "unlock" | "setup"; accountId?: string; walletId?: string | null},
     ): Promise<string | null> {
         return new Promise((resolve) => {
             const modalStore = useModalStore();
@@ -53,12 +105,19 @@ export function useSecdsaPin() {
                 resolve(value);
             };
 
+            const walletId = options?.walletId;
+            const accountId = options?.accountId ?? defaultAccountId();
+
             modalStore.openModal({
                 component: markRaw(SecdsaPinModal),
                 props: {
                     title,
                     mode: options?.mode ?? "unlock",
-                    accountHint: options?.accountId ?? defaultAccountId(),
+                    accountHint: accountId,
+                    // Inline validation + persistence when walletId is known.
+                    unlock: walletId
+                        ? (pin: string) => unlockWithPin(pin, accountId, walletId)
+                        : undefined,
                     onSubmit: (pin: string) => settle(pin),
                     onCancel: () => settle(null),
                 },
@@ -73,30 +132,15 @@ export function useSecdsaPin() {
         });
     }
 
-    async function unlockWithPin(
-        pin: string,
-        accountId: string = defaultAccountId(),
-        walletId?: string | null,
-    ): Promise<void> {
-        const id = await resolveWalletId(walletId);
-        try {
-            await $fetch(`/wallet-api/wallet/${id}/keys/secdsa/unlock`, {
-                method: "POST",
-                body: {accountId, pin},
-            });
-        } catch (e: any) {
-            const status = e?.statusCode ?? e?.status ?? e?.response?.status;
-            if (status === 404) {
-                console.warn("SECDSA unlock endpoint missing; continuing with one-shot PIN in request");
-                return;
-            }
-            throw e;
-        }
-    }
-
     /**
      * Ensures the WSCA slot is unlocked before a SECDSA operation.
-     * Shows a PIN modal and returns false only if the user cancels.
+     *
+     * Tier 1 — silent: if the PIN is already in Pinia (loaded from PRF on
+     *   login, or carried from a previous unlock this session), use it
+     *   directly without showing any modal.
+     * Tier 2 — modal: prompt the user; on success the PIN is cached + persisted.
+     *
+     * Returns false only if the user cancels the modal.
      */
     async function ensureUnlocked(options?: {
         accountId?: string;
@@ -106,6 +150,26 @@ export function useSecdsaPin() {
         walletId?: string | null;
     }): Promise<boolean> {
         const accountId = options?.accountId ?? defaultAccountId();
+
+        // --- Tier 1: cached PIN ---
+        const securityStore = useSecurityStore();
+        const cachedPin = securityStore.secdsaPin;
+        if (cachedPin && securityStore.secdsaPinAccountId === accountId) {
+            try {
+                const id = await resolveWalletId(options?.walletId);
+                // Validate the cached PIN (also repopulates wallet-api2 SecdsaPinSession).
+                await $fetch(`/wallet-api/wallet/${id}/keys/secdsa/unlock`, {
+                    method: "POST",
+                    body: {accountId, pin: cachedPin, mode: "unlock"},
+                });
+                return true;
+            } catch {
+                // Cached PIN rejected — clear it and fall through to modal.
+                securityStore.setSecdsaPin(null, accountId);
+            }
+        }
+
+        // --- Tier 2: modal ---
         const mode = options?.mode ?? "unlock";
         const title =
             options?.title ??
@@ -130,7 +194,7 @@ export function useSecdsaPin() {
                     title,
                     mode,
                     accountHint: accountId,
-                    unlock: (pin: string) => unlockWithPin(pin, accountId, options?.walletId),
+                    unlock: (pin: string) => unlockWithPin(pin, accountId, options?.walletId, mode),
                     onSubmit: () => settle(true),
                     onCancel: () => settle(false),
                 },

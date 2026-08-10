@@ -121,8 +121,8 @@
 <script lang="ts" setup>
 import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import QrcodeVue from "qrcode.vue";
-import {get as webauthnGet, supported as webauthnSupported} from "@github/webauthn-json";
-import {getOrCreateAppSalt, derivePrfKey, b64uDecode} from "@waltid-web-wallet/composables/webauthnPrf.ts";
+import {get as webauthnGet, supported as webauthnSupported, parseRequestOptionsFromJSON} from "@github/webauthn-json/browser-ponyfill";
+import {getOrCreateAppSalt, derivePrfKey} from "@waltid-web-wallet/composables/webauthnPrf.ts";
 import {useSecurityStore} from "@waltid-web-wallet/stores/security.ts";
 import {useUserStore} from "@waltid-web-wallet/stores/user.ts";
 import {storeToRefs} from "pinia";
@@ -260,21 +260,22 @@ async function reauth() {
         // Use server-resolved accountId for PRF salt (avoids stale user store)
         const resolvedAccountId = beginRes.resolvedAccountId || accountId;
         const appSalt = await getOrCreateAppSalt(resolvedAccountId);
-        const optionsWithPrf = {
-            ...beginRes,
-            extensions: {
-                ...(beginRes.extensions as object ?? {}),
-                prf: {eval: {first: appSalt}},
-            },
+
+        // parseRequestOptionsFromJSON silently drops `prf` — attach after parse.
+        const getOpts = parseRequestOptionsFromJSON({publicKey: beginRes as any});
+        getOpts.publicKey!.extensions = {
+            ...(getOpts.publicKey!.extensions ?? {}),
+            prf: {eval: {first: appSalt}},
         };
 
-        const assertion = await webauthnGet({publicKey: optionsWithPrf as any});
+        const assertion = await webauthnGet(getOpts);
 
-        // Derive PRF key if available (keep in memory)
-        const prfRaw = (assertion.clientExtensionResults as any)?.prf?.results?.first;
-        const prfBytes: Uint8Array | null = prfRaw
-            ? typeof prfRaw === "string" ? b64uDecode(prfRaw) : new Uint8Array(prfRaw as ArrayBuffer)
-            : null;
+        // Derive PRF key if available (keep in memory).
+        const authExt = assertion.getClientExtensionResults() as {
+            prf?: {results?: {first?: ArrayBuffer}};
+        };
+        const prfFirst = authExt.prf?.results?.first;
+        const prfBytes: Uint8Array | null = prfFirst ? new Uint8Array(prfFirst) : null;
         if (prfBytes) {
             try {
                 const aesKey = await derivePrfKey(prfBytes, appSalt);
@@ -282,10 +283,11 @@ async function reauth() {
             } catch { /* non-fatal */ }
         }
 
-        // Strip PRF bytes before sending to server
+        // Strip PRF bytes before sending to server (toJSON already omits PRF).
+        const assertionJSON = assertion.toJSON();
         const assertionForServer = {
-            ...assertion,
-            clientExtensionResults: {...(assertion.clientExtensionResults ?? {}), prf: undefined},
+            ...assertionJSON,
+            clientExtensionResults: {...(assertionJSON.clientExtensionResults ?? {}), prf: undefined},
         };
 
         await $fetch("/wallet-api/auth/webauthn/authenticate/finish", {

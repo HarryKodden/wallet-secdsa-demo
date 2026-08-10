@@ -129,7 +129,7 @@
             <h2 class="text-lg font-semibold text-gray-900">Passkeys</h2>
             <p class="mt-1 text-sm text-gray-700">
               Register a platform passkey (Touch ID, Face ID, Windows Hello) to verify
-              your identity after SURF sign-in. The passkey never leaves your device.
+              your identity after sign-in. The passkey never leaves your device.
             </p>
           </div>
         </div>
@@ -261,7 +261,7 @@
 import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts";
 import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
-import {create as webauthnCreate, supported as webauthnSupported} from "@github/webauthn-json";
+import {create as webauthnCreate, supported as webauthnSupported, parseCreationOptionsFromJSON} from "@github/webauthn-json/browser-ponyfill";
 import {useSecurityStore} from "@waltid-web-wallet/stores/security.ts";
 import {useUserStore} from "@waltid-web-wallet/stores/user.ts";
 import {storeToRefs} from "pinia";
@@ -344,12 +344,29 @@ async function registerPasskey() {
     const label = newPasskeyLabel.value.trim() || "Passkey";
 
     const options = await $fetch("/wallet-api/auth/webauthn/register/begin", {method: "POST"});
-    // @github/webauthn-json v2 wraps options in { publicKey: ... }
-    const credential = await webauthnCreate({publicKey: options as any});
+    // parseCreationOptionsFromJSON silently drops `prf` — attach after parse.
+    const createOpts = parseCreationOptionsFromJSON({publicKey: options as any});
+    const prfActivationSalt = new Uint8Array(32);
+    createOpts.publicKey!.extensions = {
+      ...(createOpts.publicKey!.extensions ?? {}),
+      prf: {eval: {first: prfActivationSalt}},
+    };
+    const credential = await webauthnCreate(createOpts);
+    const regExt = credential.getClientExtensionResults() as {
+      prf?: {enabled?: boolean; results?: unknown};
+    };
+    const regJSON = credential.toJSON();
 
     await $fetch("/wallet-api/auth/webauthn/register/finish", {
       method: "POST",
-      body: {...credential, label},
+      body: {
+        ...regJSON,
+        label,
+        clientExtensionResults: {
+          ...(regJSON.clientExtensionResults ?? {}),
+          prf: regExt.prf ? {enabled: regExt.prf.enabled === true || !!regExt.prf.results} : undefined,
+        },
+      },
     });
 
     passkeySuccess.value = "Passkey registered successfully.";

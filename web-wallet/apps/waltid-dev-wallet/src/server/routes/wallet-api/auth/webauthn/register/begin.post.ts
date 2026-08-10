@@ -19,6 +19,12 @@ export default defineEventHandler(async (event) => {
     const {rpId, rpName, origin} = getWebAuthnConfig(event);
     const existing = listCredentials(account.accountId);
 
+    // Allow the caller to request a specific attachment ("platform" forces native
+    // Touch ID / Windows Hello and bypasses browser-extension passkey managers
+    // that may intercept but not support PRF).
+    const body = await readBody(event).catch(() => null) ?? {};
+    const attachment = (body as any)?.attachment as AuthenticatorAttachment | undefined;
+
     const options = await generateRegistrationOptions({
         rpName,
         rpID: rpId,
@@ -29,8 +35,7 @@ export default defineEventHandler(async (event) => {
         authenticatorSelection: {
             residentKey: "preferred",
             userVerification: "required",
-            // No authenticatorAttachment constraint — allows both platform (Touch ID, Face ID,
-            // Windows Hello) and roaming authenticators (YubiKey, other FIDO2 security keys).
+            ...(attachment ? {authenticatorAttachment: attachment} : {}),
         },
         extensions: {
             // Ask the authenticator to report PRF support at registration time.

@@ -23,6 +23,9 @@
                 <p v-if="isOidcLogin && webauthnStep === 'asserting'" class="mt-3 text-sm leading-6 text-slate-300">
                     Verifying your passkey…
                 </p>
+                <p v-else-if="isOidcLogin && needsPasskeySetup" class="mt-3 text-sm leading-6 text-slate-300">
+                    Register a passkey to secure your wallet and enable silent PIN unlock.
+                </p>
                 <p v-else-if="isOidcLogin" class="mt-3 text-sm leading-6 text-slate-300">
                     Completing sign-in…
                 </p>
@@ -36,6 +39,29 @@
                 <div v-if="isOidcLogin && webauthnStep === 'asserting'" class="mt-8 flex flex-col items-center gap-3">
                     <FingerPrintIcon class="h-12 w-12 animate-pulse text-cyan-300" />
                     <p class="text-sm text-slate-300">Touch your passkey to verify</p>
+                </div>
+
+                <!-- Passkey setup panel — shown to first-time users who have no passkeys yet -->
+                <div v-if="isOidcLogin && needsPasskeySetup" class="mt-8 space-y-4">
+                    <div class="rounded-xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-4">
+                        <p class="text-sm font-semibold text-cyan-200">Passkey required</p>
+                        <p class="mt-1 text-sm text-slate-300">
+                            Your SECDSA PIN will be encrypted with a passkey-derived key so
+                            future logins never ask for your PIN. Register a passkey now to continue.
+                        </p>
+                    </div>
+                    <button
+                        class="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-300 disabled:opacity-60"
+                        :disabled="isRegisteringPasskey"
+                        type="button"
+                        @click="registerAndAssert(passkeySetupAccountId)"
+                    >
+                        <FingerPrintIcon class="h-5 w-5" />
+                        {{ isRegisteringPasskey ? 'Registering passkey…' : 'Register passkey' }}
+                    </button>
+                    <p v-if="errorMessage" class="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                        {{ errorMessage }}
+                    </p>
                 </div>
 
                 <p v-if="webauthnUnsupported" class="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
@@ -56,66 +82,6 @@
                     </p>
                 </div>
 
-                <details v-if="!isOidcLogin" class="mt-8 rounded-xl border border-white/10 bg-white/5 p-4">
-                    <summary class="cursor-pointer text-sm font-medium text-slate-300">
-                        Lab / advanced — email &amp; password
-                    </summary>
-                    <form class="mt-4 space-y-5" @submit.prevent="login">
-                        <div>
-                            <label class="block text-sm font-medium text-slate-200" for="email">
-                                <span class="flex items-center gap-2">
-                                    <EnvelopeIcon class="h-5 w-5" />
-                                    Email address
-                                </span>
-                            </label>
-                            <div class="mt-2">
-                                <input
-                                    id="email"
-                                    v-model="emailInput"
-                                    autocomplete="email"
-                                    class="block w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/40"
-                                    name="email"
-                                    required
-                                    type="email"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-medium text-slate-200" for="password">
-                                <span class="flex items-center gap-2">
-                                    <IdentificationIcon class="h-5 w-5" />
-                                    Password
-                                </span>
-                            </label>
-                            <div class="mt-2">
-                                <input
-                                    id="password"
-                                    v-model="passwordInput"
-                                    autocomplete="current-password"
-                                    class="block w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2.5 text-slate-100 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/40"
-                                    name="password"
-                                    required
-                                    type="password"
-                                />
-                            </div>
-                        </div>
-
-                        <button
-                            class="flex w-full items-center justify-center rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-inset ring-white/15 transition hover:bg-white/15 disabled:opacity-70"
-                            :disabled="isLoggingIn"
-                            type="submit"
-                        >
-                            <span>Sign in with email</span>
-                            <ArrowRightOnRectangleIcon class="ml-2 h-5 w-5" />
-                        </button>
-                        <p class="text-xs text-slate-400">
-                            Prefer OIDC for normal use. Email remains for local lab accounts.
-                            <NuxtLink class="text-cyan-300 hover:text-cyan-200" to="/signup">Create account</NuxtLink>
-                        </p>
-                    </form>
-                </details>
-
                 <p v-if="isOidcLogin && errorMessage" class="mt-6 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
                     {{ errorMessage }}
                 </p>
@@ -125,12 +91,18 @@
 </template>
 
 <script lang="ts" setup>
-import {ArrowRightOnRectangleIcon, EnvelopeIcon, IdentificationIcon, FingerPrintIcon} from "@heroicons/vue/20/solid";
+import {FingerPrintIcon} from "@heroicons/vue/20/solid";
 import {storeToRefs} from "pinia";
 import {useUserStore} from "@waltid-web-wallet/stores/user.ts";
 import {useTenant} from "@waltid-web-wallet/composables/tenants.ts";
-import {get as webauthnGet, supported as webauthnSupported} from "@github/webauthn-json";
-import {getOrCreateAppSalt, derivePrfKey, b64uDecode} from "@waltid-web-wallet/composables/webauthnPrf.ts";
+import {
+    get as webauthnGet,
+    create as webauthnCreate,
+    supported as webauthnSupported,
+    parseCreationOptionsFromJSON,
+    parseRequestOptionsFromJSON,
+} from "@github/webauthn-json/browser-ponyfill";
+import {getOrCreateAppSalt, derivePrfKey, decryptPin} from "@waltid-web-wallet/composables/webauthnPrf.ts";
 import {useSecurityStore} from "@waltid-web-wallet/stores/security.ts";
 import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 
@@ -138,12 +110,17 @@ const tenant = await useTenant().value;
 const bgImg = tenant?.bgImage;
 const logoImg = tenant?.logoImage;
 
-const emailInput = ref("");
-const passwordInput = ref("");
 const isLoggingIn = ref(false);
 const errorMessage = ref("");
 const webauthnStep = ref<"idle" | "asserting" | "done">("idle");
 const webauthnUnsupported = ref(false);
+
+// Passkey-setup state — used when a new user has no passkeys yet.
+// tryLoginWithOidcSession pauses here until the user registers one.
+const needsPasskeySetup = ref(false);
+const isRegisteringPasskey = ref(false);
+const passkeySetupAccountId = ref("");
+let _passkeySetupResolve: (() => void) | null = null;
 
 const userStore = useUserStore();
 const { user } = storeToRefs(userStore);
@@ -170,6 +147,68 @@ function connectOidc() {
 }
 
 /**
+ * Register a new passkey then immediately re-assert with PRF to derive the AES key.
+ * Called from the passkey-setup panel that appears for first-time users.
+ */
+async function registerAndAssert(accountId: string) {
+    isRegisteringPasskey.value = true;
+    errorMessage.value = "";
+    try {
+        const beginRes = await $fetch("/wallet-api/auth/webauthn/register/begin", {
+            method: "POST",
+            // Force platform authenticator (Touch ID / Windows Hello) so the native OS
+            // passkey manager handles it — browser-extension managers may intercept the
+            // generic request but do not forward PRF extensions to the authenticator.
+            body: {accountId, attachment: "platform"},
+        });
+
+        // IMPORTANT: @github/webauthn-json/browser-ponyfill's parse*FromJSON schema only
+        // knows appid/appidExclude/credProps — it silently DROPS `prf`. Attach PRF on the
+        // native options AFTER parsing, before navigator.credentials.create().
+        const createOpts = parseCreationOptionsFromJSON({publicKey: beginRes as any});
+        const prfActivationSalt = new Uint8Array(32); // throwaway activation salt
+        createOpts.publicKey!.extensions = {
+            ...(createOpts.publicKey!.extensions ?? {}),
+            prf: {eval: {first: prfActivationSalt}},
+        };
+
+        const credential = await webauthnCreate(createOpts);
+        const regExt = credential.getClientExtensionResults() as {
+            prf?: {enabled?: boolean; results?: {first?: ArrayBuffer}};
+        };
+        console.info("[register] prf clientExtensionResults:",
+            JSON.stringify(regExt.prf ?? null,
+                (_k, v) => v instanceof ArrayBuffer ? `<AB ${v.byteLength}b>` : v));
+
+        // toJSON() also strips PRF from clientExtensionResults — re-attach enabled flag.
+        const regJSON = credential.toJSON();
+        await $fetch("/wallet-api/auth/webauthn/register/finish", {
+            method: "POST",
+            body: {
+                ...regJSON,
+                clientExtensionResults: {
+                    ...(regJSON.clientExtensionResults ?? {}),
+                    prf: regExt.prf ? {enabled: regExt.prf.enabled === true || !!regExt.prf.results} : undefined,
+                },
+            },
+        });
+
+        // Passkey is registered — now assert with PRF to derive the AES key.
+        needsPasskeySetup.value = false;
+        await assertWebAuthn(accountId);
+
+        // Resume the suspended tryLoginWithOidcSession.
+        _passkeySetupResolve?.();
+        _passkeySetupResolve = null;
+    } catch (err) {
+        console.error("[passkey] Registration failed:", err);
+        errorMessage.value = "Passkey registration failed — please try again.";
+    } finally {
+        isRegisteringPasskey.value = false;
+    }
+}
+
+/**
  * Attempt a WebAuthn assertion for the given accountId.
  * - Augments server options with per-account APP_SALT as PRF eval.first
  * - Extracts and derives the PRF key client-side; stores in Pinia
@@ -190,48 +229,69 @@ async function assertWebAuthn(accountId: string): Promise<boolean> {
         );
 
         if (beginRes.noCredentials) {
-            webauthnStep.value = "done";
+            // New user — no passkeys registered yet.
+            // Signal the login flow to pause and show the passkey-registration panel.
+            needsPasskeySetup.value = true;
+            passkeySetupAccountId.value = accountId;
+            webauthnStep.value = "idle";
             return true;
         }
 
         // Load (or create) the per-account APP_SALT for PRF domain separation
         const appSalt = await getOrCreateAppSalt(accountId);
 
-        // Augment server options with PRF eval.first = APP_SALT (client-only).
-        // eval.first MUST be a BufferSource (Uint8Array/ArrayBuffer).
-        // @github/webauthn-json passes extension fields through as-is, so we
-        // pass appSalt directly — NOT the base64url-encoded string.
-        const optionsWithPrf = {
-            ...beginRes,
-            extensions: {
-                ...(beginRes.extensions as object ?? {}),
-                prf: {eval: {first: appSalt}},
-            },
+        // Parse standard fields, then attach PRF on the native options.
+        // parseRequestOptionsFromJSON silently drops `prf` (not in its schema).
+        const getOpts = parseRequestOptionsFromJSON({publicKey: beginRes as any});
+        getOpts.publicKey!.extensions = {
+            ...(getOpts.publicKey!.extensions ?? {}),
+            prf: {eval: {first: appSalt}},
         };
 
-        const assertion = await webauthnGet({publicKey: optionsWithPrf as any});
+        const assertion = await webauthnGet(getOpts);
 
         // --- PRF key derivation (stays entirely in browser) ---
-        // @github/webauthn-json recursively base64url-encodes ArrayBuffers in the
-        // response, so prf.results.first arrives as a string.  Guard both cases.
-        const prfRaw = (assertion.clientExtensionResults as any)?.prf?.results?.first;
-        const prfBytes: Uint8Array | null = prfRaw
-            ? typeof prfRaw === "string" ? b64uDecode(prfRaw) : new Uint8Array(prfRaw as ArrayBuffer)
-            : null;
+        // Must use getClientExtensionResults() — the property is not always present.
+        const authExt = assertion.getClientExtensionResults() as {
+            prf?: {results?: {first?: ArrayBuffer}};
+        };
+        const prfFirst = authExt.prf?.results?.first;
+        const prfBytes: Uint8Array | null = prfFirst ? new Uint8Array(prfFirst) : null;
+        console.info("[PRF] clientExtensionResults.prf =",
+            JSON.stringify(authExt.prf ?? null, (_k, v) =>
+                v instanceof ArrayBuffer ? `<ArrayBuffer ${v.byteLength}b>` : v));
+        console.info("[PRF] prfBytes present:", !!prfBytes);
         if (prfBytes) {
             try {
                 const aesKey = await derivePrfKey(prfBytes, appSalt);
                 useSecurityStore().setKey(aesKey, accountId);
+
+                // Attempt to load and decrypt the stored SECDSA PIN blob for this account.
+                // Silently skipped on first login (no blob yet) or if decryption fails.
+                try {
+                    const pinBlobRes = await $fetch<{blob: {iv: string; ct: string} | null}>(
+                        `/wallet-api/auth/webauthn/wsca-pin?accountId=${encodeURIComponent(accountId)}`,
+                    );
+                    if (pinBlobRes?.blob) {
+                        const pin = await decryptPin(aesKey, pinBlobRes.blob);
+                        useSecurityStore().setSecdsaPin(pin, accountId);
+                        console.info("[PRF] WSCA PIN restored — modal will be skipped this session");
+                    }
+                } catch (e) {
+                    console.warn("[PRF] Could not restore WSCA PIN:", e);
+                }
             } catch (e) {
                 console.warn("[webauthn] PRF key derivation failed", e);
             }
         }
 
-        // Strip PRF output before sending to server — it must not leave the browser
+        // Strip PRF output before sending to server — it must not leave the browser.
+        // Use toJSON() from browser-ponyfill which properly serialises all fields.
+        const assertionJSON = assertion.toJSON();
         const assertionForServer = {
-            ...assertion,
+            ...assertionJSON,
             clientExtensionResults: {
-                ...(assertion.clientExtensionResults ?? {}),
+                ...(assertionJSON.clientExtensionResults ?? {}),
                 prf: undefined,
             },
         };
@@ -303,6 +363,36 @@ async function tryLoginWithOidcSession() {
             }
         }
 
+        // If no passkeys were registered, the login flow is paused here until the
+        // user completes passkey registration via registerAndAssert().
+        if (needsPasskeySetup.value) {
+            await new Promise<void>(r => { _passkeySetupResolve = r; });
+        }
+
+        // Step 3b: If a PRF key was derived during the assertion, try to load
+        // the stored encrypted PIN for this session.  On success the PIN is
+        // cached in Pinia and ensureWscaInitialized / ensureUnlocked will run
+        // silently — no PIN modal for returning users.
+        if (session.wscaAccountId) {
+            const securityStore = useSecurityStore();
+            const walletId = session.walletIds?.[0] ?? null;
+            if (securityStore.prfKey && walletId) {
+                try {
+                    const res = await $fetch<{blob: {iv: string; ct: string} | null}>(
+                        `/wallet-api/auth/webauthn/wsca-pin?accountId=${encodeURIComponent(session.wscaAccountId)}`,
+                    );
+                    if (res.blob) {
+                        const pin = await decryptPin(securityStore.prfKey, res.blob);
+                        securityStore.setSecdsaPin(pin, session.wscaAccountId);
+                    }
+                } catch {
+                    // No stored blob yet (first login) or wrong passkey — user will
+                    // be prompted during ensureWscaInitialized and the PIN will then
+                    // be encrypted and persisted for next time.
+                }
+            }
+        }
+
         user.value = {
             token: session.token || "",
             id: session.id,
@@ -341,22 +431,6 @@ async function tryLoginWithOidcSession() {
 
 if (isOidcLogin.value) {
     void tryLoginWithOidcSession();
-}
-
-async function login() {
-    isLoggingIn.value = true;
-    errorMessage.value = "";
-
-    try {
-        await signIn(
-            {email: emailInput.value, password: passwordInput.value},
-            {callbackUrl: signInRedirectUrl.value}
-        );
-    } catch {
-        errorMessage.value = "Please check that you have entered the correct email address and password.";
-    } finally {
-        isLoggingIn.value = false;
-    }
 }
 
 definePageMeta({

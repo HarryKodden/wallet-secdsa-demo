@@ -135,3 +135,17 @@ export async function decryptBlob(key: CryptoKey, blob: EncryptedBlob): Promise<
     const plain = await crypto.subtle.decrypt({name: "AES-GCM", iv}, key, ct);
     return new Uint8Array(plain);
 }
+
+// ---------------------------------------------------------------------------
+// PIN-specific helpers (UTF-8 string ↔ EncryptedBlob)
+// ---------------------------------------------------------------------------
+
+/** Encrypts a plaintext PIN string using the PRF-derived AES-GCM key. */
+export async function encryptPin(key: CryptoKey, pin: string): Promise<EncryptedBlob> {
+    return encryptBlob(key, new TextEncoder().encode(pin));
+}
+
+/** Decrypts a stored PIN blob back to a plaintext string. */
+export async function decryptPin(key: CryptoKey, blob: EncryptedBlob): Promise<string> {
+    return new TextDecoder().decode(await decryptBlob(key, blob));
+}

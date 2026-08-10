@@ -69,6 +69,9 @@ export default defineNuxtConfig({
         injectRegister: "script",
         injectManifest: {injectionPoint: undefined},
         registerType: "autoUpdate",
+        // Automatically unregisters any stale ServiceWorker on next page load.
+        // Prevents "InvalidStateError" after rebuilds that change content-hashed filenames.
+        selfDestroying: true,
         // notification-worker.js
         manifest: {
             name: "walt.id wallet",
@@ -222,7 +225,6 @@ export default defineNuxtConfig({
                 "http://localhost:7115/wallet-api/auth/oidc-session",
             oidcPublicBaseUrl: process.env.NUXT_PUBLIC_OIDC_PUBLIC_BASE_URL || "http://localhost:7115",
             oidcScopes: process.env.NUXT_PUBLIC_OIDC_SCOPES || "openid email profile",
-            wscaAccountId: process.env.NUXT_PUBLIC_WSCA_ACCOUNT_ID || "citizen-42",
             // Inside compose, wallet-api2 reaches SECDSA as http://secdsa:8080
             wscaBaseUrl: process.env.NUXT_PUBLIC_WSCA_BASE_URL || "http://secdsa:8080",
             // OID4VCI authorization_code client (separate from wallet login OIDC)
