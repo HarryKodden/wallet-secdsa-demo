@@ -402,8 +402,7 @@ async function tryLoginWithOidcSession() {
             wscaAccountId: session.wscaAccountId || "",
         };
 
-        // Step 4: First-time SECDSA users choose a 6-digit PIN to activate WSCA
-        // for their OIDC `sub` account. Returning users skip this.
+        // Step 4: SoftHSM PIN (setup or unlock), then auto-create SECDSA key + did:jwk.
         if (session.wscaAccountId) {
             const walletId = session.walletIds?.[0] ?? null;
             const initialized = await ensureWscaInitialized({

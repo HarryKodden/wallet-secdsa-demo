@@ -11,13 +11,11 @@
       <section class="mt-8">
         <h2 class="text-lg font-semibold text-gray-900">Quick start</h2>
         <ol class="mt-2 list-decimal space-y-1 pl-5 text-sm text-gray-700">
-          <li>Sign in (email or OIDC, depending on how the demo is configured).</li>
-          <li>Open or create a wallet.</li>
+          <li>Sign in with OIDC (demo default).</li>
           <li>
-            Under <strong>Keys</strong>, generate a SECDSA key (<code>secp256r1</code> / P-256).
-            Enter the SoftHSM PIN when prompted.
+            Set or enter your SoftHSM PIN — the wallet then creates a SECDSA key and
+            <code>did:jwk</code> automatically if they are missing.
           </li>
-          <li>Under <strong>DIDs</strong>, create a <strong>did:jwk</strong> from that key.</li>
           <li>
             Open <strong>Scan</strong> to receive a credential offer or share a presentation.
           </li>
@@ -37,9 +35,10 @@
       <section class="mt-8">
         <h2 class="text-lg font-semibold text-gray-900">SECDSA PIN unlock</h2>
         <p class="mt-2 text-sm text-gray-700">
-          Before key generation or signing (receive / present), the wallet asks for the SoftHSM PIN and calls
-          <code>POST /wallet/&#123;id&#125;/keys/secdsa/unlock</code>.
-          The PIN unlocks SoftHSM in wallet-api2 memory — it is not stored in the browser.
+          After OIDC login the wallet asks for the SoftHSM PIN (or unlocks silently via passkey PRF)
+          and calls <code>POST /wallet/&#123;id&#125;/keys/secdsa/unlock</code>.
+          The same step provisions a SECDSA key and <code>did:jwk</code> when missing.
+          The PIN is held in session memory (and optionally PRF-encrypted) — not as plaintext in the browser.
         </p>
       </section>
 
@@ -55,12 +54,8 @@
             </thead>
             <tbody class="divide-y divide-gray-100 text-gray-700">
               <tr>
-                <td class="px-3 py-2">Generate SECDSA key</td>
-                <td class="px-3 py-2">Wallet → Keys → Generate</td>
-              </tr>
-              <tr>
-                <td class="px-3 py-2">Create <code>did:jwk</code></td>
-                <td class="px-3 py-2">Wallet → DIDs → New → JWK</td>
+                <td class="px-3 py-2">SECDSA key + <code>did:jwk</code></td>
+                <td class="px-3 py-2">Created automatically after PIN setup (also Keys / DIDs in Settings)</td>
               </tr>
               <tr>
                 <td class="px-3 py-2">Receive / present</td>

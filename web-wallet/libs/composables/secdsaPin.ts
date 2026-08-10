@@ -209,10 +209,118 @@ export function useSecdsaPin() {
         });
     }
 
+    function keyIdOf(key: unknown): string {
+        if (!key || typeof key !== "object") return "";
+        const k = key as {keyId?: string | {id?: string}; id?: string};
+        if (typeof k.keyId === "string") return k.keyId;
+        if (k.keyId && typeof k.keyId === "object" && typeof k.keyId.id === "string") {
+            return k.keyId.id;
+        }
+        return typeof k.id === "string" ? k.id : "";
+    }
+
+    function didIdOf(did: unknown): string {
+        if (typeof did === "string") return did;
+        if (!did || typeof did !== "object") return "";
+        const d = did as {did?: string};
+        return typeof d.did === "string" ? d.did : "";
+    }
+
+    /**
+     * After SoftHSM PIN is available: ensure a SECDSA key + did:jwk exist.
+     * Idempotent — skips steps that already succeeded. Failures are logged and
+     * do not undo PIN unlock (user can still create manually in Settings).
+     */
+    async function ensureSecdsaKeyAndDid(
+        walletId: string,
+        accountId: string,
+    ): Promise<void> {
+        const securityStore = useSecurityStore();
+        const pin = securityStore.secdsaPin;
+        if (!pin || securityStore.secdsaPinAccountId !== accountId) {
+            console.warn("[secdsa] No session PIN — skip auto key/DID provision");
+            return;
+        }
+
+        const baseUrl = defaultBaseUrl()
+            .replace("://localhost:", "://host.docker.internal:")
+            .replace("://127.0.0.1:", "://host.docker.internal:");
+
+        let keys: unknown[] = [];
+        try {
+            keys = (await $fetch<unknown[]>(`/wallet-api/wallet/${walletId}/keys`)) ?? [];
+        } catch (e) {
+            console.warn("[secdsa] Could not list keys for auto-provision:", e);
+            return;
+        }
+
+        let keyId = keys.map(keyIdOf).find((id) => id.startsWith("secdsa:")) ?? "";
+
+        if (!keyId) {
+            try {
+                const created = await $fetch<{keyId?: string} | string>(
+                    `/wallet-api/wallet/${walletId}/keys/generate`,
+                    {
+                        method: "POST",
+                        body: {
+                            backend: "secdsa",
+                            keyType: "secp256r1",
+                            name: "SECDSA",
+                            config: {baseUrl, accountId, pin},
+                        },
+                    },
+                );
+                keyId =
+                    typeof created === "string"
+                        ? created
+                        : String(created?.keyId || "");
+                if (!keyId) {
+                    keys =
+                        (await $fetch<unknown[]>(`/wallet-api/wallet/${walletId}/keys`)) ??
+                        [];
+                    keyId = keys.map(keyIdOf).find((id) => id.startsWith("secdsa:")) ?? "";
+                }
+            } catch (e) {
+                console.warn("[secdsa] Auto SECDSA key generate failed:", e);
+                return;
+            }
+        }
+
+        if (!keyId) {
+            console.warn("[secdsa] No SECDSA keyId after generate — skip DID");
+            return;
+        }
+
+        let dids: unknown[] = [];
+        try {
+            dids = (await $fetch<unknown[]>(`/wallet-api/wallet/${walletId}/dids`)) ?? [];
+        } catch (e) {
+            console.warn("[secdsa] Could not list DIDs for auto-provision:", e);
+            return;
+        }
+
+        if (dids.some((d) => didIdOf(d).startsWith("did:jwk:"))) {
+            return;
+        }
+
+        try {
+            await $fetch(`/wallet-api/wallet/${walletId}/dids/create`, {
+                method: "POST",
+                body: {
+                    method: "jwk",
+                    keyId,
+                },
+            });
+        } catch (e) {
+            console.warn("[secdsa] Auto did:jwk create failed:", e);
+        }
+    }
+
     /**
      * After OIDC login:
      * - SoftHSM not activated → setup (choose PIN; Protocol 4 locks it to the account)
      * - SoftHSM activated → unlock with the existing PIN if not already in session
+     * - On success → auto-create SECDSA key + did:jwk if missing
      * Returns false only if the user cancels when a PIN is required.
      */
     async function ensureWscaInitialized(options?: {
@@ -224,27 +332,32 @@ export function useSecdsaPin() {
         const status = await fetchSecdsaStatus(walletId, accountId);
         const securityStore = useSecurityStore();
 
+        let unlocked = false;
+
         // Only first SoftHSM activation may choose a PIN.
         if (status?.activated === false) {
-            return ensureUnlocked({
+            unlocked = await ensureUnlocked({
                 accountId,
                 walletId,
                 mode: "setup",
                 title: "Choose a 6-digit PIN to initialise SECDSA",
             });
+        } else if (securityStore.secdsaPin && securityStore.secdsaPinAccountId === accountId) {
+            // Activated: reuse cached PIN when present.
+            unlocked = await ensureUnlocked({accountId, walletId, mode: "unlock"});
+        } else {
+            unlocked = await ensureUnlocked({
+                accountId,
+                walletId,
+                mode: "unlock",
+                title: "Enter your SECDSA PIN to continue",
+            });
         }
 
-        // Activated (or status unknown): PIN is locked — unlock if not already cached.
-        if (securityStore.secdsaPin && securityStore.secdsaPinAccountId === accountId) {
-            return ensureUnlocked({accountId, walletId, mode: "unlock"});
+        if (unlocked) {
+            await ensureSecdsaKeyAndDid(walletId, accountId);
         }
-
-        return ensureUnlocked({
-            accountId,
-            walletId,
-            mode: "unlock",
-            title: "Enter your SECDSA PIN to continue",
-        });
+        return unlocked;
     }
 
     return {
@@ -254,5 +367,6 @@ export function useSecdsaPin() {
         unlockWithPin,
         ensureUnlocked,
         ensureWscaInitialized,
+        ensureSecdsaKeyAndDid,
     };
 }
