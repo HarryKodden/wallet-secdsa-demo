@@ -31,7 +31,7 @@ Self-contained Docker Compose demo:
 |-------|-------------|
 | wallet-api2 API auth | **Enabled** — JWT accounts; wallets are private to the logged-in account |
 | Issuer / verifier / wallet JWT keys | **Demo EC private JWKs** in config — rotate before any shared deploy |
-| Lab account / PIN | `citizen-42` / `424242` — SoftHSM-style lab defaults only (SECDSA, not walt.id login) |
+| Lab SoftHSM | OIDC users: WSCA account id = OIDC `sub`; first login sets a **6-digit PIN**. Email/lab fallback: `citizen-42` / `424242` |
 | Wallet / credential data | **Postgres** volume `postgres-data` (survives restart) |
 | Auth accounts (email/password) | File volume `wallet-api2-accounts` (`WALLET2_ACCOUNT_STORE_PATH`) |
 | SECDSA keys | Memory WSCD in `secdsa` — **not** durable across secdsa restart |
@@ -68,14 +68,16 @@ cp .env.example .env   # fill OIDC_* if you use login
 | Verifier API2 Swagger | http://localhost:7004/swagger |
 | SECDSA lab UI | http://localhost:18080 |
 
-**Lab account:** `citizen-42` · **PIN:** `424242`
+**OIDC:** SoftHSM account = your IdP `sub`; choose a 6-digit PIN on first sign-in.
+
+**Email/lab fallback:** account `citizen-42` · PIN `424242`
 
 ## Requesting credentials (authenticated users)
 
 Wallet-api2 auth is on: register or sign in first (email/password or OIDC), then open or
 create a wallet. Before the first receive/present, generate a SECDSA key and a `did:jwk`
-from it (Settings → Keys / DIDs). The wallet prompts for the lab PIN (`424242`) when the
-key must sign.
+from it (Settings → Keys / DIDs). After OIDC login, new users set a 6-digit PIN to
+initialise WSCA; later operations re-prompt for that PIN when unlocking SoftHSM.
 
 To **receive** a credential (OID4VCI):
 
@@ -244,6 +246,18 @@ On a version tag (`v*`) the same images are also tagged with the release (e.g. `
 | wallet-api2 (SECDSA) | `ghcr.io/harrykodden/wallet-secdsa-demo/wallet-api2:<tag>` |
 | issuer-api2 | `ghcr.io/harrykodden/wallet-secdsa-demo/issuer-api2:<tag>` |
 | verifier-api2 | `ghcr.io/harrykodden/wallet-secdsa-demo/verifier-api2:<tag>` |
+
+### Public deploy (external reverse proxy)
+
+Use [`deploy/`](deploy/) — GHCR images only, no local build, TLS left to your proxy:
+
+```bash
+cd deploy
+cp .env.example .env   # set VERSION_TAG, public HTTPS URLs, DB_PASSWORD, …
+docker compose pull && docker compose up -d
+```
+
+Upstreams bind to `127.0.0.1:7004–7115` by default; point the proxy at those ports.
 
 Create a release (suggests the next patch tag; confirm or edit):
 

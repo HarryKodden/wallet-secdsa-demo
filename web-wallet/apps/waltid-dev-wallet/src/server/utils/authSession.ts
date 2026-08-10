@@ -6,6 +6,9 @@ export type AuthSession = {
     friendlyName: string;
     oidcSession: boolean;
     token?: string;
+    /** WSCA SoftHSM account id — OIDC `sub` when present, else demo default. */
+    wscaAccountId?: string;
+    walletIds?: string[];
 };
 
 function readString(value: unknown, fallback = ""): string {
@@ -34,8 +37,9 @@ export function decodeTokenClaims(token: string): Record<string, unknown> | null
 
 export function sessionFromAccount(
     token: string,
-    account: {accountId: string; email: string},
+    account: {accountId: string; email: string; walletIds?: string[]},
     oidcSession: boolean,
+    wscaAccountId?: string,
 ): AuthSession {
     const email = readString(account.email, "n/a");
     return {
@@ -44,5 +48,7 @@ export function sessionFromAccount(
         friendlyName: email,
         oidcSession,
         token,
+        wscaAccountId: wscaAccountId || undefined,
+        walletIds: Array.isArray(account.walletIds) ? account.walletIds : undefined,
     };
 }

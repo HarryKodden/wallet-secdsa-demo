@@ -25,13 +25,19 @@
                             </label>
                             <div class="mt-2 sm:col-span-2 sm:mt-0">
                                 <select id="keyGenerationRequest" v-model="data.keyGenerationRequest.type"
-                                        @change="data.keyGenerationRequest.config = {}"
                                         class="block px-2 w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:max-w-xs sm:text-sm sm:leading-6">
                                     <option v-for="option in options" :key="option.keyGenerationRequest[1]"
                                             :value="option.keyGenerationRequest[1]">
                                         {{ option.keyGenerationRequest[0] }}
                                     </option>
                                 </select>
+                                <p v-if="data.keyGenerationRequest.type === 'secdsa'"
+                                   class="mt-2 max-w-md text-xs text-gray-500">
+                                  SoftHSM keeps one user key per account. If you deleted the key from this wallet,
+                                  Generate re-imports the existing SoftHSM key (same
+                                  <code class="rounded bg-gray-100 px-1">secdsa:&lt;account&gt;:1</code>).
+                                  Use the PIN from first-time SECDSA setup — not necessarily 424242.
+                                </p>
                             </div>
                         </div>
 
@@ -231,18 +237,14 @@ const data = reactive<{
 
 const currentWallet = useCurrentWallet();
 
-// When switching to SECDSA, prefill Docker-reachable lab defaults
+// When switching KMS type, reset config then apply SECDSA lab defaults
 watch(
     () => data.keyGenerationRequest.type,
     (type) => {
+        data.keyGenerationRequest.config = {};
         if (type === "secdsa") {
-            if (!data.keyGenerationRequest.config.baseUrl) {
-                data.keyGenerationRequest.config.baseUrl = defaultBaseUrl();
-            }
-            if (!data.keyGenerationRequest.config.accountId) {
-                data.keyGenerationRequest.config.accountId = defaultAccountId();
-            }
-            // Prefer secp256r1 for SECDSA
+            data.keyGenerationRequest.config.baseUrl = defaultBaseUrl();
+            data.keyGenerationRequest.config.accountId = defaultAccountId();
             data.type = "secp256r1";
         }
     },

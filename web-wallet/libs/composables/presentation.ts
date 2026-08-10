@@ -5,6 +5,7 @@ import {decodeRequest} from "./siop-requests.ts";
 import {navigateTo} from "nuxt/app";
 import {useSecdsaPin} from "./secdsaPin.ts";
 import {normalizeWalletCredential} from "./credential.ts";
+import {parseJwt} from "../utils/jwt.ts";
 
 type PresentationTransactionDataItem = {
   type: string;
@@ -286,13 +287,81 @@ export async function usePresentation(query: any) {
     disclosureModalState.value[matchedCredentials[index.value].id] = true;
   });
 
+  function kidFromDidJwk(did: string | null | undefined): string | null {
+    if (!did || !did.startsWith("did:jwk:")) return null;
+    try {
+      const b64 = did.slice("did:jwk:".length).split("#")[0];
+      const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+      const jwk = JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/")));
+      return typeof jwk?.kid === "string" && jwk.kid ? jwk.kid : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function holderBindingFromCredential(credential: MatchedCredential): {
+    keyId: string | null;
+    did: string | null;
+  } {
+    try {
+      const parsed = credential.parsedDocument as Record<string, any> | undefined;
+      const subjectFromParsed =
+        (typeof parsed?.sub === "string" && parsed.sub) ||
+        (typeof parsed?.credentialSubject?.id === "string" && parsed.credentialSubject.id) ||
+        null;
+
+      const doc = typeof credential.document === "string" ? credential.document : "";
+      // Prefer SD-JWT cnf; fall back to W3C subject did:jwk (jwt_vc_json has cnf: null).
+      if (doc.includes(".")) {
+        const jwt = doc.split("~")[0];
+        const payload = parseJwt(jwt) as Record<string, any>;
+        const cnfKid = payload?.cnf?.jwk?.kid;
+        if (typeof cnfKid === "string" && cnfKid) {
+          return {
+            keyId: cnfKid,
+            did:
+              (typeof payload?.sub === "string" && payload.sub) ||
+              subjectFromParsed ||
+              null,
+          };
+        }
+        const sub =
+          (typeof payload?.sub === "string" && payload.sub) || subjectFromParsed;
+        return {keyId: kidFromDidJwk(sub), did: sub};
+      }
+
+      return {
+        keyId: kidFromDidJwk(subjectFromParsed),
+        did: subjectFromParsed,
+      };
+    } catch {
+      return {keyId: null, did: null};
+    }
+  }
+
+  function secdsaAccountFromKeyId(keyId: string): string | null {
+    const m = /^secdsa:(.+):(\d+)$/.exec(keyId);
+    return m?.[1] ?? null;
+  }
+
   async function acceptPresentation() {
     failed.value = false;
     failMessage.value = "";
 
-    const {ensureUnlocked} = useSecdsaPin();
+    const selected = matchedCredentials.filter((c) => selection.value[c.id]);
+    const binding =
+      selected.map(holderBindingFromCredential).find((b) => b.keyId || b.did) ?? {
+        keyId: null,
+        did: null,
+      };
+    const holderKeyId = binding.keyId;
+    const holderDid = binding.did;
+    const secdsaAccountId = holderKeyId ? secdsaAccountFromKeyId(holderKeyId) : null;
+
+    const {ensureUnlocked, defaultAccountId} = useSecdsaPin();
     const unlocked = await ensureUnlocked({
       title: "Enter SECDSA PIN to present credential",
+      accountId: secdsaAccountId ?? defaultAccountId(),
     });
     if (!unlocked) return;
 
@@ -303,10 +372,15 @@ export async function usePresentation(query: any) {
         redirectUri?: string | null;
         transmission_success?: boolean | string | null;
         form_post_html?: string | null;
+        error?: string | null;
+        message?: string | null;
       }>(`/wallet-api/wallet/${currentWallet.value}/credentials/present`, {
         method: "POST",
         body: {
           requestUrl: originalRequest,
+          // Must match credential cnf / subject did:jwk — not a stale wallet default DID.
+          ...(holderKeyId ? {keyId: holderKeyId} : {}),
+          ...(holderDid ? {did: holderDid} : {}),
         },
       });
 
@@ -327,7 +401,10 @@ export async function usePresentation(query: any) {
       if (transmissionFailed) {
         failed.value = true;
         failMessage.value =
-          "Presentation finished but the verifier reported a transmission failure.";
+          "Verifier rejected the presentation (often a holder-key / DID mismatch). " +
+          "Use the SECDSA PIN for the credential's SoftHSM account, and ensure the " +
+          "wallet DID matches the credential subject." +
+          (holderKeyId ? ` (credential key: ${holderKeyId})` : "");
         return;
       }
 

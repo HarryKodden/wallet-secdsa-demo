@@ -5,7 +5,7 @@
         <div>
           <h1 class="text-2xl font-semibold text-gray-900">Mobile devices</h1>
           <p class="mt-2 text-sm text-gray-600">
-            Onboard on the web with SURF (OIDC), then scan this QR from the mobile wallet.
+            Onboard on the web with OIDC, then scan this QR from the mobile wallet.
             The phone unlocks with biometrics — no password on the device.
           </p>
         </div>
@@ -21,6 +21,7 @@
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-lg font-semibold text-gray-900">Connect a device</h2>
           <button
+            v-if="!needsReauth"
             class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-60"
             type="button"
             :disabled="creating"
@@ -30,7 +31,27 @@
           </button>
         </div>
 
-        <p v-if="error" class="mt-3 text-sm font-medium text-red-600">{{ error }}</p>
+        <!-- Passkey re-assertion required before pairing -->
+        <div v-if="needsReauth" class="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
+          <p class="text-sm font-medium text-purple-900">
+            Verify your passkey to continue
+          </p>
+          <p class="mt-1 text-sm text-purple-700">
+            A passkey check is required before pairing a new device.
+          </p>
+          <button
+            class="mt-3 flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-purple-500 disabled:opacity-60"
+            type="button"
+            :disabled="asserting"
+            @click="reauth"
+          >
+            <span v-if="asserting" class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            <span>{{ asserting ? "Verifying…" : "Verify with passkey" }}</span>
+          </button>
+          <p v-if="reauthError" class="mt-2 text-sm text-red-600">{{ reauthError }}</p>
+        </div>
+
+        <p v-if="error && !needsReauth" class="mt-3 text-sm font-medium text-red-600">{{ error }}</p>
 
         <div v-if="pairing" class="mt-6 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
           <div class="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
@@ -64,7 +85,8 @@
       <section class="mt-8">
         <h2 class="text-lg font-semibold text-gray-900">Registered devices</h2>
         <p class="mt-1 text-sm text-gray-600">
-          Demo registry (in-memory). Encrypted backups per device are planned later.
+          Devices paired to your account. Pairing codes are single-use and expire in 5 minutes;
+          the device registration persists across server restarts.
         </p>
         <ul
           v-if="devices.length"
@@ -99,6 +121,11 @@
 <script lang="ts" setup>
 import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import QrcodeVue from "qrcode.vue";
+import {get as webauthnGet, supported as webauthnSupported} from "@github/webauthn-json";
+import {getOrCreateAppSalt, derivePrfKey, b64uDecode} from "@waltid-web-wallet/composables/webauthnPrf.ts";
+import {useSecurityStore} from "@waltid-web-wallet/stores/security.ts";
+import {useUserStore} from "@waltid-web-wallet/stores/user.ts";
+import {storeToRefs} from "pinia";
 
 definePageMeta({
     layout: "default-reduced-nav",
@@ -131,6 +158,12 @@ const devices = ref<Device[]>([]);
 const creating = ref(false);
 const error = ref("");
 const now = ref(Date.now());
+
+const needsReauth = ref(false);
+const asserting = ref(false);
+const reauthError = ref("");
+
+const {user} = storeToRefs(useUserStore());
 
 const remainingLabel = computed(() => {
     if (!pairing.value) return "";
@@ -175,6 +208,7 @@ async function loadDevices() {
 async function createPairing() {
     creating.value = true;
     error.value = "";
+    needsReauth.value = false;
     try {
         pairing.value = await $fetch<PairingCreated>("/wallet-api/auth/pair/create", {
             method: "POST",
@@ -185,10 +219,86 @@ async function createPairing() {
             expiresAt: pairing.value.expiresAt,
         };
     } catch (e: any) {
-        error.value = e?.data?.statusMessage || e?.message || "Could not create pairing code";
-        pairing.value = null;
+        if (e?.status === 403 || e?.data?.statusCode === 403) {
+            needsReauth.value = true;
+            pairing.value = null;
+        } else {
+            error.value = e?.data?.statusMessage || e?.message || "Could not create pairing code";
+            pairing.value = null;
+        }
     } finally {
         creating.value = false;
+    }
+}
+
+/** Re-assertion: run WebAuthn get(), stamp the cookie, then retry pairing automatically. */
+async function reauth() {
+    reauthError.value = "";
+    asserting.value = true;
+
+    if (!webauthnSupported()) {
+        reauthError.value = "Passkeys are not supported in this browser.";
+        asserting.value = false;
+        return;
+    }
+
+    try {
+        const accountId: string = user.value?.id || "";
+
+        const beginRes = await $fetch<{noCredentials?: boolean; resolvedAccountId?: string; extensions?: unknown; [k: string]: unknown}>(
+            "/wallet-api/auth/webauthn/authenticate/begin",
+            {method: "POST"},  // no body — server resolves accountId from auth.token cookie
+        );
+
+        if (beginRes.noCredentials) {
+            needsReauth.value = false;
+            asserting.value = false;
+            await createPairing();
+            return;
+        }
+
+        // Use server-resolved accountId for PRF salt (avoids stale user store)
+        const resolvedAccountId = beginRes.resolvedAccountId || accountId;
+        const appSalt = await getOrCreateAppSalt(resolvedAccountId);
+        const optionsWithPrf = {
+            ...beginRes,
+            extensions: {
+                ...(beginRes.extensions as object ?? {}),
+                prf: {eval: {first: appSalt}},
+            },
+        };
+
+        const assertion = await webauthnGet({publicKey: optionsWithPrf as any});
+
+        // Derive PRF key if available (keep in memory)
+        const prfRaw = (assertion.clientExtensionResults as any)?.prf?.results?.first;
+        const prfBytes: Uint8Array | null = prfRaw
+            ? typeof prfRaw === "string" ? b64uDecode(prfRaw) : new Uint8Array(prfRaw as ArrayBuffer)
+            : null;
+        if (prfBytes) {
+            try {
+                const aesKey = await derivePrfKey(prfBytes, appSalt);
+                useSecurityStore().setKey(aesKey, resolvedAccountId);
+            } catch { /* non-fatal */ }
+        }
+
+        // Strip PRF bytes before sending to server
+        const assertionForServer = {
+            ...assertion,
+            clientExtensionResults: {...(assertion.clientExtensionResults ?? {}), prf: undefined},
+        };
+
+        await $fetch("/wallet-api/auth/webauthn/authenticate/finish", {
+            method: "POST",
+            body: assertionForServer,
+        });
+
+        needsReauth.value = false;
+        asserting.value = false;
+        await createPairing();
+    } catch (err: any) {
+        reauthError.value = err?.data?.statusMessage || err?.message || "Verification failed. Please try again.";
+        asserting.value = false;
     }
 }
 

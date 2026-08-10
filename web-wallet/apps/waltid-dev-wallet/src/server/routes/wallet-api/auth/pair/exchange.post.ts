@@ -26,6 +26,7 @@ export default defineEventHandler(async (event) => {
         token: claimed.token,
         email: claimed.email,
         accountId: claimed.accountId,
+        wscaAccountId: claimed.wscaAccountId,
         deviceLabel: claimed.deviceLabel,
         expiresAt: claimed.expiresAt,
     };

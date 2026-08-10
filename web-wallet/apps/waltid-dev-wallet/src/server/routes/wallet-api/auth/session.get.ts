@@ -10,6 +10,7 @@ export default defineEventHandler(async (event) => {
 
     const account = await walletApi2Account(token);
     const oidcSession = getCookie(event, "auth.oidc") === "1";
+    const wscaAccountId = getCookie(event, "auth.wsca") || undefined;
 
-    return sessionFromAccount(token, account, oidcSession);
+    return sessionFromAccount(token, account, oidcSession, wscaAccountId);
 });

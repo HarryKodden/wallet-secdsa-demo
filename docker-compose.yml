@@ -147,7 +147,10 @@ services:
       - secdsa
       - issuer-api2
       - verifier-api2
+    volumes:
+      - web-wallet-data:/data
 
 volumes:
   postgres-data:
   wallet-api2-accounts:
+  web-wallet-data:

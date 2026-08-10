@@ -1,4 +1,6 @@
 import {randomBytes} from "node:crypto";
+import {readFileSync, writeFileSync, mkdirSync, existsSync} from "node:fs";
+import {join} from "node:path";
 
 export type PairingStatus = "pending" | "claimed" | "expired";
 
@@ -6,6 +8,8 @@ export type PairingRecord = {
     code: string;
     accountId: string;
     email: string;
+    /** SoftHSM / WSCA account (OIDC sub mapping); optional for email/lab sessions. */
+    wscaAccountId?: string;
     /** wallet-api2 JWT captured at create time (handed to the device on exchange). */
     token: string;
     createdAt: number;
@@ -26,9 +30,64 @@ export type RegisteredDevice = {
     lastSeenAt: number;
 };
 
+// ---------------------------------------------------------------------------
+// File persistence for registered devices
+// ---------------------------------------------------------------------------
+
+const DATA_DIR = process.env.WEBAUTHN_DATA_DIR || "/data";
+const DEVICES_FILE = join(DATA_DIR, "paired-devices.json");
+
+type PersistedDevices = {
+    devices: RegisteredDevice[];
+};
+
+function loadDevicesFromDisk(): RegisteredDevice[] {
+    try {
+        if (!existsSync(DEVICES_FILE)) return [];
+        const raw = readFileSync(DEVICES_FILE, "utf-8");
+        const parsed = JSON.parse(raw) as PersistedDevices;
+        return Array.isArray(parsed.devices) ? parsed.devices : [];
+    } catch (err) {
+        console.warn("[pairStore] Could not read devices file:", err);
+        return [];
+    }
+}
+
+function saveDevicesToDisk(devices: RegisteredDevice[]): void {
+    try {
+        if (!existsSync(DATA_DIR)) {
+            mkdirSync(DATA_DIR, {recursive: true});
+        }
+        writeFileSync(DEVICES_FILE, JSON.stringify({devices}, null, 2), "utf-8");
+    } catch (err) {
+        console.warn("[pairStore] Could not write devices file:", err);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// In-memory state
+// ---------------------------------------------------------------------------
+
 const PAIR_TTL_MS = 5 * 60 * 1000;
+
+/** Short-lived pairing codes — no need to persist across restarts. */
 const pairings = new Map<string, PairingRecord>();
+
+/** Registered devices — loaded from disk and kept in sync. */
 const devicesByAccount = new Map<string, RegisteredDevice[]>();
+
+// Populate from disk at module load
+for (const device of loadDevicesFromDisk()) {
+    const list = devicesByAccount.get(device.accountId) ?? [];
+    list.push(device);
+    devicesByAccount.set(device.accountId, list);
+}
+
+function allDevices(): RegisteredDevice[] {
+    const all: RegisteredDevice[] = [];
+    for (const list of devicesByAccount.values()) all.push(...list);
+    return all;
+}
 
 function prune() {
     const now = Date.now();
@@ -36,7 +95,6 @@ function prune() {
         if (rec.expiresAt <= now && rec.status === "pending") {
             rec.status = "expired";
         }
-        // Drop very old records
         if (rec.expiresAt < now - 60 * 60 * 1000) {
             pairings.delete(code);
         }
@@ -47,6 +105,7 @@ export function createPairing(input: {
     accountId: string;
     email: string;
     token: string;
+    wscaAccountId?: string;
 }): PairingRecord {
     prune();
     const code = randomBytes(16).toString("base64url");
@@ -55,6 +114,7 @@ export function createPairing(input: {
         code,
         accountId: input.accountId,
         email: input.email,
+        wscaAccountId: input.wscaAccountId,
         token: input.token,
         createdAt: now,
         expiresAt: now + PAIR_TTL_MS,
@@ -104,6 +164,7 @@ export function claimPairing(
     const list = devicesByAccount.get(rec.accountId) ?? [];
     list.push(registered);
     devicesByAccount.set(rec.accountId, list);
+    saveDevicesToDisk(allDevices());
 
     return rec;
 }
@@ -117,6 +178,7 @@ export function revokeDevice(accountId: string, deviceId: string): boolean {
     const next = list.filter((d) => d.id !== deviceId);
     if (next.length === list.length) return false;
     devicesByAccount.set(accountId, next);
+    saveDevicesToDisk(allDevices());
     return true;
 }
 
@@ -127,3 +189,4 @@ export function pairingDeepLink(code: string): string {
 export function pairingTtlMs(): number {
     return PAIR_TTL_MS;
 }
+

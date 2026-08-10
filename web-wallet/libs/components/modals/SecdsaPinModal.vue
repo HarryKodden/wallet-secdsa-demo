@@ -17,11 +17,19 @@
           {{ title }}
         </h3>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Enter the PIN for your SoftHSM account. For the lab account
-          <code>citizen-42</code> the default is <code>424242</code> — a new PIN
-          only works after activating a fresh account in the lab UI.
-          Base URL from Docker must be
-          <code>http://host.docker.internal:18080</code> (not localhost).
+          <template v-if="mode === 'setup'">
+            Choose a 6-digit PIN to initialise your SECDSA SoftHSM account
+            <template v-if="accountHint">
+              (<code class="break-all">{{ accountHint }}</code>).
+            </template>
+            You will need this PIN later to unlock signing and key generation.
+          </template>
+          <template v-else>
+            Enter your 6-digit SoftHSM PIN to unlock SECDSA operations
+            <template v-if="accountHint">
+              for <code class="break-all">{{ accountHint }}</code>.
+            </template>
+          </template>
         </p>
       </div>
 
@@ -30,25 +38,55 @@
           class="block text-sm font-medium leading-6 text-gray-900 dark:text-white"
           for="secdsa-pin"
         >
-          PIN
+          {{ mode === "setup" ? "New PIN" : "PIN" }}
         </label>
         <div class="mt-2">
           <input
             id="secdsa-pin"
             v-model="pin"
-            autocomplete="current-password"
+            autocomplete="one-time-code"
             autofocus
-            class="block w-full rounded-md border-0 py-1.5 px-2 shadow-sm ring-1 ring-inset ring-gray-300 text-gray-900 dark:text-white placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 bg-white dark:bg-gray-700"
+            class="block w-full rounded-md border-0 py-1.5 px-2 shadow-sm ring-1 ring-inset ring-gray-300 text-gray-900 dark:text-white placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 bg-white dark:bg-gray-700 tracking-[0.35em]"
             inputmode="numeric"
-            minlength="4"
+            maxlength="6"
+            minlength="6"
             name="secdsa-pin"
+            pattern="[0-9]{6}"
+            placeholder="••••••"
             required
             type="password"
             :disabled="busy"
           />
         </div>
-        <p v-if="error" class="mt-2 text-sm text-red-600">{{ error }}</p>
       </div>
+
+      <div v-if="mode === 'setup'">
+        <label
+          class="block text-sm font-medium leading-6 text-gray-900 dark:text-white"
+          for="secdsa-pin-confirm"
+        >
+          Confirm PIN
+        </label>
+        <div class="mt-2">
+          <input
+            id="secdsa-pin-confirm"
+            v-model="pinConfirm"
+            autocomplete="one-time-code"
+            class="block w-full rounded-md border-0 py-1.5 px-2 shadow-sm ring-1 ring-inset ring-gray-300 text-gray-900 dark:text-white placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 bg-white dark:bg-gray-700 tracking-[0.35em]"
+            inputmode="numeric"
+            maxlength="6"
+            minlength="6"
+            name="secdsa-pin-confirm"
+            pattern="[0-9]{6}"
+            placeholder="••••••"
+            required
+            type="password"
+            :disabled="busy"
+          />
+        </div>
+      </div>
+
+      <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
 
       <div class="flex gap-2">
         <button
@@ -64,7 +102,7 @@
           type="submit"
           :disabled="busy"
         >
-          {{ busy ? "Unlocking…" : "Unlock" }}
+          {{ busy ? busyLabel : submitLabel }}
         </button>
       </div>
     </form>
@@ -72,26 +110,49 @@
 </template>
 
 <script lang="ts" setup>
-import {ref} from "vue";
+import {computed, ref} from "vue";
 import {XMarkIcon} from "@heroicons/vue/24/outline";
 
 const props = defineProps<{
   title?: string;
-  /** Optional async unlock. If provided, modal stays open on failure so the user can retry. */
+  /** unlock = existing account; setup = first-time initialise (confirm PIN) */
+  mode?: "unlock" | "setup";
+  accountHint?: string;
+  /** Optional async unlock/activate. Modal stays open on failure so the user can retry. */
   unlock?: (pin: string) => Promise<void>;
   onSubmit: (pin: string) => void;
   onCancel: () => void;
 }>();
 
-const title = props.title ?? "Enter SECDSA PIN";
+const mode = computed(() => props.mode ?? "unlock");
+const title = computed(
+  () =>
+    props.title ??
+    (mode.value === "setup" ? "Set your SECDSA PIN" : "Enter SECDSA PIN"),
+);
+const submitLabel = computed(() => (mode.value === "setup" ? "Initialise" : "Unlock"));
+const busyLabel = computed(() => (mode.value === "setup" ? "Initialising…" : "Unlocking…"));
+
 const pin = ref("");
+const pinConfirm = ref("");
 const error = ref("");
 const busy = ref(false);
 
+function validatePin(value: string): string | null {
+  if (!/^\d{6}$/.test(value)) {
+    return "PIN must be exactly 6 digits";
+  }
+  if (mode.value === "setup" && value !== pinConfirm.value.trim()) {
+    return "PINs do not match";
+  }
+  return null;
+}
+
 async function submit() {
   const value = pin.value.trim();
-  if (value.length < 4) {
-    error.value = "PIN must be at least 4 characters";
+  const validationError = validatePin(value);
+  if (validationError) {
+    error.value = validationError;
     return;
   }
   error.value = "";
@@ -106,8 +167,11 @@ async function submit() {
       error.value =
         typeof detail === "string"
           ? detail
-          : "Wrong PIN or unlock failed — try again";
+          : mode.value === "setup"
+            ? "Initialisation failed — try again"
+            : "Wrong PIN or unlock failed — try again";
       pin.value = "";
+      pinConfirm.value = "";
     } finally {
       busy.value = false;
     }

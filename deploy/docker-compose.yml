@@ -1,0 +1,129 @@
+# Public / remote deploy of the walt.id + SECDSA demo stack.
+# Uses GHCR images published by CI (no local build). TLS is terminated by an
+# external reverse proxy — this compose only exposes plain HTTP upstreams.
+#
+# Educational / PoC only — SECDSA is patent-encumbered (see SECDSA USAGE.md).
+#
+# From this directory (repo checkout required for ../**/config mounts):
+#   cp .env.example .env   # set VERSION_TAG + public URLs + secrets
+#   docker login ghcr.io   # if packages are private
+#   docker compose pull && docker compose up -d
+
+name: wallet-secdsa-demo
+
+services:
+  secdsa:
+    image: ${SECDSA_IMAGE:-ghcr.io/harrykodden/secdsa:latest}
+    # Lab SoftHSM UI — keep off the public internet; Docker network only.
+    # Uncomment to expose on the host for ops debugging:
+    # ports:
+    #   - "${BIND_ADDRESS:-127.0.0.1}:${SECDSA_HOST_PORT:-18080}:8080"
+    environment:
+      ADDR: ":8080"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-waltid}
+      POSTGRES_USER: ${DB_USERNAME:-waltid}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-waltid} -d ${DB_NAME:-waltid}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  wallet-api2:
+    image: ghcr.io/harrykodden/wallet-secdsa-demo/wallet-api2:${VERSION_TAG:?set VERSION_TAG in .env}
+    env_file: .env
+    environment:
+      WALLET_API2_PORT: "7006"
+      POSTGRES_DB_HOST: postgres
+      DB_NAME: ${DB_NAME:-waltid}
+      DB_USERNAME: ${DB_USERNAME:-waltid}
+      DB_PASSWORD: ${DB_PASSWORD}
+      SERVICE_HOST: ${SERVICE_HOST:-localhost}
+      WSCA_BASE_URL: ${WSCA_INTERNAL_URL:-http://secdsa:8080}
+      WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
+      WALLET2_ACCOUNT_STORE_PATH: ${WALLET2_ACCOUNT_STORE_PATH:-/data/wallet2-accounts.json}
+    volumes:
+      - ../wallet-api2/config:/waltid-wallet-api2/config:ro
+      - wallet-api2-accounts:/data
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${WALLET_API2_HOST_PORT:-7006}:7006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      secdsa:
+        condition: service_started
+    restart: unless-stopped
+
+  issuer-api2:
+    image: ghcr.io/harrykodden/wallet-secdsa-demo/issuer-api2:${VERSION_TAG}
+    env_file: .env
+    environment:
+      ISSUER_API2_PORT: "7005"
+      SERVICE_HOST: ${SERVICE_HOST:-localhost}
+      ISSUER_AS_NAME: ${ISSUER_AS_NAME:-keycloak}
+      ISSUER_AS_AUTHORIZE_URL: ${ISSUER_AS_AUTHORIZE_URL:-}
+      ISSUER_AS_TOKEN_URL: ${ISSUER_AS_TOKEN_URL:-}
+      ISSUER_AS_CLIENT_ID: ${ISSUER_AS_CLIENT_ID:-}
+      ISSUER_AS_CLIENT_SECRET: ${ISSUER_AS_CLIENT_SECRET:-}
+    volumes:
+      - ../issuer-api2/config:/waltid-issuer-api2/config:ro
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${ISSUER_API2_HOST_PORT:-7005}:7005"
+    restart: unless-stopped
+
+  verifier-api2:
+    image: ghcr.io/harrykodden/wallet-secdsa-demo/verifier-api2:${VERSION_TAG}
+    env_file: .env
+    environment:
+      VERIFIER_API2_PORT: "7004"
+      SERVICE_HOST: ${SERVICE_HOST:-localhost}
+    volumes:
+      - ../verifier-api2/config:/waltid-verifier-api2/config:ro
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${VERIFIER_API2_HOST_PORT:-7004}:7004"
+    restart: unless-stopped
+
+  web-wallet:
+    image: ghcr.io/harrykodden/wallet-secdsa-demo/web-wallet:${VERSION_TAG}
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "7115"
+      NUXT_PUBLIC_APP_VERSION: ${VERSION_TAG}
+      NUXT_PUBLIC_WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
+      NUXT_PUBLIC_WSCA_BASE_URL: ${WSCA_INTERNAL_URL:-http://secdsa:8080}
+      NUXT_PUBLIC_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      NUXT_PUBLIC_OIDC_AUTHORIZE_URL: ${NUXT_PUBLIC_OIDC_AUTHORIZE_URL:-}
+      NUXT_PUBLIC_OIDC_REDIRECT_URI: ${NUXT_PUBLIC_OIDC_REDIRECT_URI:-}
+      NUXT_OIDC_TOKEN_URL: ${NUXT_OIDC_TOKEN_URL:-}
+      NUXT_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      NUXT_PUBLIC_OIDC_SCOPES: ${NUXT_PUBLIC_OIDC_SCOPES:-openid email profile}
+      NUXT_PUBLIC_OID4VCI_CLIENT_ID: ${OID4VCI_CLIENT_ID:-wallet-secdsa-demo}
+      NUXT_PUBLIC_OID4VCI_REDIRECT_URI: ${OID4VCI_REDIRECT_URI:-}
+      ISSUER_API2_INTERNAL_URL: ${ISSUER_API2_INTERNAL_URL:-http://issuer-api2:7005}
+      VERIFIER_API2_INTERNAL_URL: ${VERIFIER_API2_INTERNAL_URL:-http://verifier-api2:7004}
+      WALLET_API2_PROXY: ${WALLET_API2_PROXY:-http://wallet-api2:7006}
+      ISSUER_AS_AUTHORIZE_URL: ${ISSUER_AS_AUTHORIZE_URL:-}
+      ISSUER_AS_TOKEN_URL: ${ISSUER_AS_TOKEN_URL:-}
+      ISSUER_AS_CLIENT_ID: ${ISSUER_AS_CLIENT_ID:-}
+      LAB_ENABLE_AUTH_CODE: ${LAB_ENABLE_AUTH_CODE:-}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${WEB_WALLET_HOST_PORT:-7115}:7115"
+    depends_on:
+      - wallet-api2
+      - secdsa
+      - issuer-api2
+      - verifier-api2
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  wallet-api2-accounts:

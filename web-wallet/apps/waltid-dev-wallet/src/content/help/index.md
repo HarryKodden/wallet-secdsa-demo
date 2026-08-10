@@ -15,7 +15,9 @@ This wallet is part of the **walt.id + SECDSA demo stack**. It stores verifiable
 4. Under **DIDs**, create a **did:jwk** from that key.
 5. Scan or open a credential offer to **Accept** an issuance, or scan a presentation request to share a credential.
 
-**Lab defaults:** account `citizen-42`, PIN `424242`. SoftHSM UI: [http://localhost:18080](http://localhost:18080).
+**Lab defaults (email login only):** account `citizen-42`, PIN `424242`. SoftHSM UI: [http://localhost:18080](http://localhost:18080).
+
+**OIDC login:** WSCA account id = OIDC `sub`. New users are asked for a 6-digit PIN to initialise SoftHSM (Protocol 4 activate).
 
 ## SECDSA PIN unlock
 

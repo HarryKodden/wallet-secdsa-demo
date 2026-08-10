@@ -8,8 +8,14 @@ import {isJwtToken, sessionFromAccount} from "../../../utils/authSession";
 
 const AUTH_COOKIE = "auth.token";
 const OIDC_FLAG_COOKIE = "auth.oidc";
+const WSCA_ACCOUNT_COOKIE = "auth.wsca";
 
-function setAuthCookies(event: Parameters<typeof setCookie>[0], token: string, oidc: boolean) {
+function setAuthCookies(
+    event: Parameters<typeof setCookie>[0],
+    token: string,
+    oidc: boolean,
+    wscaAccountId?: string,
+) {
     setCookie(event, AUTH_COOKIE, token, {
         httpOnly: false,
         sameSite: "lax",
@@ -28,12 +34,24 @@ function setAuthCookies(event: Parameters<typeof setCookie>[0], token: string, o
     } else {
         deleteCookie(event, OIDC_FLAG_COOKIE, {path: "/"});
     }
+    if (wscaAccountId) {
+        setCookie(event, WSCA_ACCOUNT_COOKIE, wscaAccountId, {
+            httpOnly: false,
+            sameSite: "lax",
+            path: "/",
+            secure: false,
+            maxAge: 60 * 60 * 24 * 7,
+        });
+    } else {
+        deleteCookie(event, WSCA_ACCOUNT_COOKIE, {path: "/"});
+    }
 }
 
 /**
  * Login against wallet-api2:
  * - email + password → POST /auth/emailpass
  * - OIDC JWT (from SURF) → JIT account + emailpass bridge (wallet-api2 JWT)
+ *   WSCA SoftHSM account id = OIDC `sub` (cookie auth.wsca)
  */
 export default defineEventHandler(async (event) => {
     const body = await readBody<Record<string, unknown>>(event);
@@ -43,13 +61,12 @@ export default defineEventHandler(async (event) => {
     const type = typeof body.type === "string" ? body.type : "";
 
     if (tokenInput && (type === "oidc" || isJwtToken(tokenInput))) {
-        // SURF / external OIDC JWT — exchange for wallet-api2 session.
         const bridged = await bridgeOidcToWalletApi2(tokenInput);
-        setAuthCookies(event, bridged.token, true);
+        setAuthCookies(event, bridged.token, true, bridged.wscaAccountId);
         const account = await walletApi2Account(bridged.token);
         return {
             token: bridged.token,
-            ...sessionFromAccount(bridged.token, account, true),
+            ...sessionFromAccount(bridged.token, account, true, bridged.wscaAccountId),
         };
     }
 

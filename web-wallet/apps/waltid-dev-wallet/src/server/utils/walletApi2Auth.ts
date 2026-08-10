@@ -45,6 +45,22 @@ export function oidcAccountEmail(claims: Record<string, unknown>): {email: strin
     return {email, sub};
 }
 
+/**
+ * Map OIDC `sub` to a WSCA SoftHSM account id (safe for lab CKA_ID / labels).
+ * This is distinct from the walt.id wallet-api2 account UUID.
+ */
+export function wscaAccountIdFromOidcSub(sub: string): string {
+    const cleaned = sub
+        .trim()
+        .replace(/[^a-zA-Z0-9._@+-]/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_|_$/g, "");
+    if (!cleaned) {
+        throw createError({statusCode: 401, statusMessage: "OIDC sub cannot be mapped to a WSCA account id"});
+    }
+    return cleaned.slice(0, 128);
+}
+
 async function readErrorDetail(res: Response): Promise<string> {
     try {
         return (await res.text()) || res.statusText;
@@ -137,6 +153,7 @@ export async function bridgeOidcToWalletApi2(oidcJwt: string): Promise<{
     token: string;
     email: string;
     accountId: string;
+    wscaAccountId: string;
 }> {
     let claims: Record<string, unknown>;
     try {
@@ -147,10 +164,16 @@ export async function bridgeOidcToWalletApi2(oidcJwt: string): Promise<{
 
     const {email, sub} = oidcAccountEmail(claims);
     const password = oidcBridgePassword(sub);
+    const wscaAccountId = wscaAccountIdFromOidcSub(sub);
 
     await walletApi2Register(email, password);
     const login = await walletApi2EmailPass(email, password);
     const account = await walletApi2Account(login.token);
 
-    return {token: login.token, email: account.email || email, accountId: account.accountId};
+    return {
+        token: login.token,
+        email: account.email || email,
+        accountId: account.accountId,
+        wscaAccountId,
+    };
 }

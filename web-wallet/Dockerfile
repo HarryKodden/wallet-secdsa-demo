@@ -27,9 +27,10 @@ ENV NUXT_PUBLIC_APP_VERSION=$NUXT_PUBLIC_APP_VERSION \
 
 COPY package.json package-lock.json* ./
 COPY apps/waltid-dev-wallet/package.json ./apps/waltid-dev-wallet/
-COPY libs ./libs
 RUN npm install --workspace=@waltid-web-wallet-secdsa/dev-wallet
 
+# Copy source after install so that code changes don't bust the npm cache layer.
+COPY libs ./libs
 COPY apps/waltid-dev-wallet ./apps/waltid-dev-wallet
 WORKDIR /app/apps/waltid-dev-wallet
 RUN npm run build

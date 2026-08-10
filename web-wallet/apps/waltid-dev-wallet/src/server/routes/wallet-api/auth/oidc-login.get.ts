@@ -1,7 +1,7 @@
 import {getOidcConfig} from "../../../utils/oidcConfig";
 
 /**
- * Start SURF / OIDC login — mirrors classic wallet-api `GET /wallet-api/auth/oidc-login`.
+ * Start OIDC login — mirrors classic wallet-api `GET /wallet-api/auth/oidc-login`.
  * Browser is redirected to the IdP; callback lands on `/wallet-api/auth/oidc-session`.
  */
 export default defineEventHandler((event) => {

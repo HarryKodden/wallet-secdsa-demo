@@ -20,13 +20,27 @@
                 <h1 class="mt-6 text-3xl font-semibold tracking-tight text-white">
                     Sign in to your SSI wallet
                 </h1>
-                <p v-if="isOidcLogin" class="mt-3 text-sm leading-6 text-slate-300">
-                    Completing SURF sign-in…
+                <p v-if="isOidcLogin && webauthnStep === 'asserting'" class="mt-3 text-sm leading-6 text-slate-300">
+                    Verifying your passkey…
+                </p>
+                <p v-else-if="isOidcLogin" class="mt-3 text-sm leading-6 text-slate-300">
+                    Completing sign-in…
                 </p>
                 <p v-else class="mt-3 text-sm leading-6 text-slate-300">
-                    Sign in with SURF (OIDC). Then connect a phone from
-                    <span class="text-cyan-200">Settings → Mobile devices</span>
-                    — the app unlocks with biometrics only.
+                    Sign in with OIDC. Your SoftHSM account is keyed by your
+                    OIDC identity — new users set a 6-digit PIN on first login.
+                    Connect a phone from
+                    <span class="text-cyan-200">Settings → Mobile devices</span>.
+                </p>
+
+                <div v-if="isOidcLogin && webauthnStep === 'asserting'" class="mt-8 flex flex-col items-center gap-3">
+                    <FingerPrintIcon class="h-12 w-12 animate-pulse text-cyan-300" />
+                    <p class="text-sm text-slate-300">Touch your passkey to verify</p>
+                </div>
+
+                <p v-if="webauthnUnsupported" class="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                    Passkey (WebAuthn) is not available in this browser or context.
+                    Sign-in proceeds without passkey verification.
                 </p>
 
                 <div v-if="!isOidcLogin" class="mt-8 space-y-4">
@@ -96,7 +110,7 @@
                             <ArrowRightOnRectangleIcon class="ml-2 h-5 w-5" />
                         </button>
                         <p class="text-xs text-slate-400">
-                            Prefer SURF for normal use. Email remains for local lab accounts.
+                            Prefer OIDC for normal use. Email remains for local lab accounts.
                             <NuxtLink class="text-cyan-300 hover:text-cyan-200" to="/signup">Create account</NuxtLink>
                         </p>
                     </form>
@@ -111,10 +125,14 @@
 </template>
 
 <script lang="ts" setup>
-import {ArrowRightOnRectangleIcon, EnvelopeIcon, IdentificationIcon} from "@heroicons/vue/20/solid";
+import {ArrowRightOnRectangleIcon, EnvelopeIcon, IdentificationIcon, FingerPrintIcon} from "@heroicons/vue/20/solid";
 import {storeToRefs} from "pinia";
 import {useUserStore} from "@waltid-web-wallet/stores/user.ts";
 import {useTenant} from "@waltid-web-wallet/composables/tenants.ts";
+import {get as webauthnGet, supported as webauthnSupported} from "@github/webauthn-json";
+import {getOrCreateAppSalt, derivePrfKey, b64uDecode} from "@waltid-web-wallet/composables/webauthnPrf.ts";
+import {useSecurityStore} from "@waltid-web-wallet/stores/security.ts";
+import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 
 const tenant = await useTenant().value;
 const bgImg = tenant?.bgImage;
@@ -124,8 +142,12 @@ const emailInput = ref("");
 const passwordInput = ref("");
 const isLoggingIn = ref(false);
 const errorMessage = ref("");
+const webauthnStep = ref<"idle" | "asserting" | "done">("idle");
+const webauthnUnsupported = ref(false);
+
 const userStore = useUserStore();
 const { user } = storeToRefs(userStore);
+const {ensureWscaInitialized} = useSecdsaPin();
 
 const {signIn} = useAuth();
 const route = useRoute();
@@ -144,8 +166,88 @@ function connectOidc() {
         typeof route.query.redirect === "string" && route.query.redirect.startsWith("/")
             ? route.query.redirect
             : signInRedirectUrl.value;
-    // Server-side OIDC start (same contract as classic wallet-api).
     window.location.href = `/wallet-api/auth/oidc-login?redirect=${encodeURIComponent(redirectTarget)}`;
+}
+
+/**
+ * Attempt a WebAuthn assertion for the given accountId.
+ * - Augments server options with per-account APP_SALT as PRF eval.first
+ * - Extracts and derives the PRF key client-side; stores in Pinia
+ * - Strips PRF bytes before sending the assertion to the server
+ * Returns true if verified (or if no passkeys registered / WebAuthn unavailable).
+ */
+async function assertWebAuthn(accountId: string): Promise<boolean> {
+    if (!webauthnSupported()) {
+        webauthnUnsupported.value = true;
+        return true; // graceful degradation
+    }
+
+    webauthnStep.value = "asserting";
+    try {
+        const beginRes = await $fetch<{noCredentials?: boolean; extensions?: unknown; [k: string]: unknown}>(
+            "/wallet-api/auth/webauthn/authenticate/begin",
+            {method: "POST", body: {accountId}},
+        );
+
+        if (beginRes.noCredentials) {
+            webauthnStep.value = "done";
+            return true;
+        }
+
+        // Load (or create) the per-account APP_SALT for PRF domain separation
+        const appSalt = await getOrCreateAppSalt(accountId);
+
+        // Augment server options with PRF eval.first = APP_SALT (client-only).
+        // eval.first MUST be a BufferSource (Uint8Array/ArrayBuffer).
+        // @github/webauthn-json passes extension fields through as-is, so we
+        // pass appSalt directly — NOT the base64url-encoded string.
+        const optionsWithPrf = {
+            ...beginRes,
+            extensions: {
+                ...(beginRes.extensions as object ?? {}),
+                prf: {eval: {first: appSalt}},
+            },
+        };
+
+        const assertion = await webauthnGet({publicKey: optionsWithPrf as any});
+
+        // --- PRF key derivation (stays entirely in browser) ---
+        // @github/webauthn-json recursively base64url-encodes ArrayBuffers in the
+        // response, so prf.results.first arrives as a string.  Guard both cases.
+        const prfRaw = (assertion.clientExtensionResults as any)?.prf?.results?.first;
+        const prfBytes: Uint8Array | null = prfRaw
+            ? typeof prfRaw === "string" ? b64uDecode(prfRaw) : new Uint8Array(prfRaw as ArrayBuffer)
+            : null;
+        if (prfBytes) {
+            try {
+                const aesKey = await derivePrfKey(prfBytes, appSalt);
+                useSecurityStore().setKey(aesKey, accountId);
+            } catch (e) {
+                console.warn("[webauthn] PRF key derivation failed", e);
+            }
+        }
+
+        // Strip PRF output before sending to server — it must not leave the browser
+        const assertionForServer = {
+            ...assertion,
+            clientExtensionResults: {
+                ...(assertion.clientExtensionResults ?? {}),
+                prf: undefined,
+            },
+        };
+
+        const finishRes = await $fetch<{verified: boolean}>("/wallet-api/auth/webauthn/authenticate/finish", {
+            method: "POST",
+            body: assertionForServer,
+        });
+
+        webauthnStep.value = "done";
+        return finishRes.verified === true;
+    } catch (err) {
+        console.warn("WebAuthn assertion failed", err);
+        webauthnStep.value = "idle";
+        return false;
+    }
 }
 
 async function tryLoginWithOidcSession() {
@@ -162,21 +264,44 @@ async function tryLoginWithOidcSession() {
         }
 
         const tokenText = await tokenResponse.text();
-        const redirectTarget = signInRedirectUrl.value;
 
-        // Nitro exchanges the SURF JWT for a wallet-api2 session (ownership JWT).
+        // Step 1: Sign in without redirect — WebAuthn + SECDSA PIN setup must finish first.
+        const redirectTarget = signInRedirectUrl.value.startsWith("/")
+            ? signInRedirectUrl.value
+            : "/";
         await signIn(
             {token: tokenText, type: "oidc"},
-            {callbackUrl: redirectTarget.startsWith("/") ? redirectTarget : "/"}
+            {redirect: false},
         );
 
+        // Step 2: Fetch the session — gives us the real wallet-api2 accountId
+        // and WSCA SoftHSM account id (OIDC `sub` via auth.wsca).
         const session = await $fetch<{
             id: string;
             email: string;
             friendlyName: string;
             oidcSession: boolean;
             token?: string;
+            wscaAccountId?: string;
+            walletIds?: string[];
         }>("/wallet-api/auth/session", {credentials: "include"});
+
+        // Step 3: WebAuthn second-factor gate.
+        // auth.token is now set so the begin endpoint resolves the account from the
+        // cookie even without an explicit accountId; we pass it for explicitness.
+        // The gate is skipped gracefully when no passkey is registered, or when
+        // WebAuthn is unavailable in the browser.
+        if (session.id) {
+            const ok = await assertWebAuthn(session.id);
+            if (!ok) {
+                // Revoke the session so the user is not left signed in.
+                await $fetch("/wallet-api/auth/logout", {method: "POST"}).catch(() => {});
+                errorMessage.value = "Passkey verification failed. Please try again.";
+                isLoggingIn.value = false;
+                isOidcLogin.value = false;
+                return;
+            }
+        }
 
         user.value = {
             token: session.token || "",
@@ -184,7 +309,28 @@ async function tryLoginWithOidcSession() {
             email: session.email,
             friendlyName: session.friendlyName || session.email || "n/a",
             oidcSession: true,
+            wscaAccountId: session.wscaAccountId || "",
         };
+
+        // Step 4: First-time SECDSA users choose a 6-digit PIN to activate WSCA
+        // for their OIDC `sub` account. Returning users skip this.
+        if (session.wscaAccountId) {
+            const walletId = session.walletIds?.[0] ?? null;
+            const initialized = await ensureWscaInitialized({
+                accountId: session.wscaAccountId,
+                walletId,
+            });
+            if (!initialized) {
+                await $fetch("/wallet-api/auth/logout", {method: "POST"}).catch(() => {});
+                errorMessage.value = "SECDSA PIN setup is required to continue.";
+                isLoggingIn.value = false;
+                isOidcLogin.value = false;
+                return;
+            }
+        }
+
+        await navigateTo(redirectTarget);
+
     } catch (err) {
         console.error("OIDC sign in failed", err);
         errorMessage.value = "Your OIDC sign in failed.";
