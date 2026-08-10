@@ -4,5 +4,7 @@ FROM eclipse-temurin:21-jre
 
 WORKDIR /waltid-issuer-api2
 COPY dist/ /waltid-issuer-api2/
+# Actions upload/download-artifact strips +x; restore start scripts.
+RUN chmod +x /waltid-issuer-api2/bin/*
 EXPOSE 7005
 ENTRYPOINT ["/waltid-issuer-api2/bin/waltid-issuer-api2"]
