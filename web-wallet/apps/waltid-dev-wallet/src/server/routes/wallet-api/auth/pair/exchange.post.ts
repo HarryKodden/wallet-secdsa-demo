@@ -1,4 +1,5 @@
 import {claimPairing} from "../../../../utils/pairStore";
+import {pairingPublicUrls} from "../../../../utils/pairingPublicUrls";
 
 type ExchangeBody = {
     code?: string;
@@ -9,6 +10,7 @@ type ExchangeBody = {
 /**
  * Mobile (unauthenticated) redeems a pairing code for a wallet-api2 JWT.
  * The JWT was captured from the authenticated web session at create time.
+ * Also returns public base URLs so the device can target TLS FQDNs.
  */
 export default defineEventHandler(async (event) => {
     const body = (await readBody(event)) as ExchangeBody;
@@ -22,6 +24,10 @@ export default defineEventHandler(async (event) => {
         platform: body.platform,
     });
 
+    const live = pairingPublicUrls(event);
+    const webWalletBaseUrl = claimed.webWalletBaseUrl || live.webWalletBaseUrl;
+    const walletApi2BaseUrl = claimed.walletApi2BaseUrl || live.walletApi2BaseUrl;
+
     return {
         token: claimed.token,
         email: claimed.email,
@@ -29,5 +35,7 @@ export default defineEventHandler(async (event) => {
         wscaAccountId: claimed.wscaAccountId,
         deviceLabel: claimed.deviceLabel,
         expiresAt: claimed.expiresAt,
+        webWalletBaseUrl,
+        walletApi2BaseUrl,
     };
 });

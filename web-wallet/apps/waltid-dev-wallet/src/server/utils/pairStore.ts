@@ -10,6 +10,10 @@ export type PairingRecord = {
     email: string;
     /** SoftHSM / WSCA account (OIDC sub mapping); optional for email/lab sessions. */
     wscaAccountId?: string;
+    /** Public web-wallet origin for the phone (TLS FQDN in deploy). */
+    webWalletBaseUrl?: string;
+    /** Public wallet-api2 origin for the phone. */
+    walletApi2BaseUrl?: string;
     /** wallet-api2 JWT captured at create time (handed to the device on exchange). */
     token: string;
     createdAt: number;
@@ -106,6 +110,8 @@ export function createPairing(input: {
     email: string;
     token: string;
     wscaAccountId?: string;
+    webWalletBaseUrl?: string;
+    walletApi2BaseUrl?: string;
 }): PairingRecord {
     prune();
     const code = randomBytes(16).toString("base64url");
@@ -115,6 +121,8 @@ export function createPairing(input: {
         accountId: input.accountId,
         email: input.email,
         wscaAccountId: input.wscaAccountId,
+        webWalletBaseUrl: input.webWalletBaseUrl,
+        walletApi2BaseUrl: input.walletApi2BaseUrl,
         token: input.token,
         createdAt: now,
         expiresAt: now + PAIR_TTL_MS,
@@ -182,8 +190,15 @@ export function revokeDevice(accountId: string, deviceId: string): boolean {
     return true;
 }
 
-export function pairingDeepLink(code: string): string {
-    return `primerwallet://pair?code=${encodeURIComponent(code)}`;
+export function pairingDeepLink(
+    code: string,
+    urls?: {webWalletBaseUrl?: string; walletApi2BaseUrl?: string},
+): string {
+    const params = new URLSearchParams();
+    params.set("code", code);
+    if (urls?.webWalletBaseUrl) params.set("pairingBase", urls.webWalletBaseUrl);
+    if (urls?.walletApi2BaseUrl) params.set("apiBase", urls.walletApi2BaseUrl);
+    return `primerwallet://pair?${params.toString()}`;
 }
 
 export function pairingTtlMs(): number {

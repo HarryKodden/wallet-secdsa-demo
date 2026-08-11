@@ -74,9 +74,26 @@
             <p class="mt-3 break-all font-mono text-xs text-gray-500">
               {{ pairing.deepLink }}
             </p>
+            <p
+              v-if="pairing.webWalletBaseUrl || pairing.walletApi2BaseUrl"
+              class="mt-3 space-y-1 text-xs text-gray-600"
+            >
+              <span class="block font-medium text-gray-800">Advertised to the phone</span>
+              <span v-if="pairing.webWalletBaseUrl" class="block break-all">
+                Web: <code class="rounded bg-gray-100 px-1">{{ pairing.webWalletBaseUrl }}</code>
+              </span>
+              <span v-if="pairing.walletApi2BaseUrl" class="block break-all">
+                API: <code class="rounded bg-gray-100 px-1">{{ pairing.walletApi2BaseUrl }}</code>
+              </span>
+            </p>
             <p class="mt-4 text-xs text-gray-500">
-              Android emulator: <code class="rounded bg-gray-100 px-1">adb reverse tcp:7115 tcp:7115</code>
-              (pairing goes through the web wallet, not :7006).
+              Local emulator: <code class="rounded bg-gray-100 px-1">adb reverse tcp:7115 tcp:7115</code>
+              and <code class="rounded bg-gray-100 px-1">adb reverse tcp:7006 tcp:7006</code>.
+              Public TLS deploy: set
+              <code class="rounded bg-gray-100 px-1">NUXT_PUBLIC_OIDC_PUBLIC_BASE_URL</code>
+              and
+              <code class="rounded bg-gray-100 px-1">NUXT_PUBLIC_WALLET_API2_BASE_URL</code>
+              (or <code class="rounded bg-gray-100 px-1">WALLET2_PUBLIC_BASE_URL</code>).
             </p>
           </div>
         </div>
@@ -136,6 +153,8 @@ type PairingCreated = {
     deepLink: string;
     expiresAt: number;
     ttlMs: number;
+    webWalletBaseUrl?: string;
+    walletApi2BaseUrl?: string;
 };
 
 type PairingStatus = {

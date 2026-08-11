@@ -224,6 +224,11 @@ export default defineNuxtConfig({
                 "http://localhost:7115/wallet-api/auth/oidc-session",
             oidcPublicBaseUrl: process.env.NUXT_PUBLIC_OIDC_PUBLIC_BASE_URL || "http://localhost:7115",
             oidcScopes: process.env.NUXT_PUBLIC_OIDC_SCOPES || "openid email profile",
+            // Phone-reachable wallet-api2 origin (TLS FQDN in public deploy). Not the compose-internal proxy.
+            walletApi2PublicBaseUrl:
+                process.env.NUXT_PUBLIC_WALLET_API2_BASE_URL ||
+                process.env.WALLET2_PUBLIC_BASE_URL ||
+                "http://localhost:7006",
             // Inside compose, wallet-api2 reaches SECDSA as http://secdsa:8080
             wscaBaseUrl: process.env.NUXT_PUBLIC_WSCA_BASE_URL || "http://secdsa:8080",
             // OID4VCI authorization_code client (separate from wallet login OIDC)

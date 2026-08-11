@@ -72,14 +72,78 @@ cp .env.example .env   # fill OIDC_* if you use login
 
 **Email/lab fallback:** account `citizen-42` · PIN `424242`
 
-## Requesting credentials (authenticated users)
+## Onboarding & credential receive (OIDC → VC)
 
-Wallet-api2 auth is on: register or sign in first (email/password or OIDC), then open or
-create a wallet. Before the first receive/present, generate a SECDSA key and a `did:jwk`
-from it (Settings → Keys / DIDs). After OIDC login, new users set a 6-digit PIN to
-initialise WSCA; later operations re-prompt for that PIN when unlocking SoftHSM.
+Wallet-api2 auth is on. OIDC users are JIT-provisioned into a wallet-api2 account; the
+SoftHSM (WSCA) account id is the IdP `sub`. After the first PIN, the web wallet
+auto-creates a SECDSA key and `did:jwk` when missing.
 
-To **receive** a credential (OID4VCI):
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Browser as Web wallet<br/>(browser)
+    participant Nitro as Web wallet<br/>(Nitro :7115)
+    participant IdP as Login IdP<br/>(OIDC)
+    participant API2 as wallet-api2<br/>(:7006)
+    participant WSCA as SoftHSM<br/>(secdsa)
+    participant Issuer as Credential issuer<br/>(OID4VCI)
+
+    Note over User,Issuer: 1) Onboard — OIDC login, PIN, key + DID
+
+    User->>Browser: Open wallet / Sign in with OIDC
+    Browser->>Nitro: GET /wallet-api/auth/oidc-login
+    Nitro->>IdP: Redirect authorize
+    User->>IdP: Authenticate
+    IdP->>Nitro: GET /wallet-api/auth/oidc-session?code=
+    Nitro->>IdP: Token exchange
+    Nitro-->>Browser: Redirect /login?oidc_login=true<br/>(oidc.session cookie)
+
+    Browser->>Nitro: POST /wallet-api/auth/login<br/>{token: IdP JWT, type: oidc}
+    Note over Nitro,API2: Bridge: JIT register + emailpass<br/>(HMAC password from sub).<br/>IdP JWT is not a wallet-api2 Bearer.
+    Nitro->>API2: POST /auth/register + /auth/emailpass
+    API2-->>Nitro: wallet-api2 JWT
+    Nitro-->>Browser: Set cookie auth.token<br/>(+ auth.wsca = OIDC sub)
+
+    opt Passkey (WebAuthn + optional PRF)
+        Browser->>Nitro: WebAuthn register / assert
+        Nitro-->>Browser: PRF key (optional)<br/>may decrypt stored PIN
+    end
+
+    Browser->>Nitro: ensureWscaInitialized
+    alt SoftHSM not activated
+        User->>Browser: Choose 6-digit PIN (setup)
+    else Already activated
+        User->>Browser: Enter PIN (or PRF silent unlock)
+    end
+    Nitro->>WSCA: add / select / activate or instruct(ECHO)
+    WSCA-->>Nitro: PIN OK (account locked to PIN)
+    Nitro->>API2: POST /wallet/{id}/keys/generate<br/>(backend secdsa + pin)
+    API2->>WSCA: GENKEY
+    API2-->>Nitro: secdsa keyId
+    Nitro->>API2: POST /wallet/{id}/dids/create<br/>{method: jwk, keyId}
+    API2-->>Nitro: did:jwk
+    Browser-->>User: Wallet ready
+
+    Note over User,Issuer: 2) Receive VC — OID4VCI (pre-authorized_code)
+
+    User->>Browser: Scan / paste credential offer
+    Browser->>Nitro: Resolve offer via /wallet-api/**
+    Nitro->>API2: OID4VCI resolve / receive
+    API2->>Issuer: Fetch offer + token + credential
+    Note over Browser,WSCA: PIN unlock before proof of possession
+    Browser->>Nitro: SoftHSM unlock (PIN)
+    Nitro->>WSCA: instruct / activate check
+    API2->>WSCA: SIGN (credential request proof)
+    Issuer-->>API2: Verifiable credential
+    API2-->>Browser: Credential stored
+    Browser-->>User: VC in wallet
+```
+
+**authorization_code** grants differ only after the offer is accepted: the browser is sent to
+the issuer’s AS, returns to `/oid4vci/callback`, then PIN → proof → store (same SoftHSM path).
+
+To **receive** a credential in the UI:
 
 1. Open **Scan** in the web wallet (http://localhost:7115).
 2. Paste a credential-offer URL, upload a QR screenshot, or scan the QR from a second device
