@@ -40,18 +40,22 @@ export default defineEventHandler(async (event) => {
         token,
         wscaAccountId,
         webWalletBaseUrl: urls.webWalletBaseUrl,
-        walletApi2BaseUrl: urls.walletApi2BaseUrl,
+        walletApi2BaseUrl: urls.walletApi2BaseUrl || undefined,
     });
 
     return {
         code: pairing.code,
-        deepLink: pairingDeepLink(pairing.code, urls),
+        deepLink: pairingDeepLink(pairing.code, {
+            webWalletBaseUrl: urls.webWalletBaseUrl,
+            walletApi2BaseUrl: urls.walletApi2BaseUrl || undefined,
+        }),
         expiresAt: pairing.expiresAt,
         ttlMs: pairingTtlMs(),
         email: pairing.email,
         accountId: pairing.accountId,
         wscaAccountId: pairing.wscaAccountId,
         webWalletBaseUrl: urls.webWalletBaseUrl,
-        walletApi2BaseUrl: urls.walletApi2BaseUrl,
+        walletApi2BaseUrl: urls.walletApi2BaseUrl || null,
+        apiBaseIsLocalFallback: urls.apiBaseIsLocalFallback,
     };
 });

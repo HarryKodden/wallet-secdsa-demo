@@ -85,6 +85,24 @@
               <span v-if="pairing.walletApi2BaseUrl" class="block break-all">
                 API: <code class="rounded bg-gray-100 px-1">{{ pairing.walletApi2BaseUrl }}</code>
               </span>
+              <span
+                v-else
+                class="block rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900"
+              >
+                API URL missing — set
+                <code class="rounded bg-white px-1">NUXT_PUBLIC_WALLET_API2_BASE_URL</code>
+                (or <code class="rounded bg-white px-1">WALLET2_PUBLIC_BASE_URL</code>)
+                on the web-wallet service, e.g.
+                <code class="rounded bg-white px-1">https://web-wallet-api.….surfconext.nl</code>,
+                then recreate the container and refresh this QR.
+              </span>
+              <span
+                v-if="pairing.apiBaseIsLocalFallback && pairing.walletApi2BaseUrl"
+                class="block rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900"
+              >
+                API still looks local (<code class="rounded bg-white px-1">{{ pairing.walletApi2BaseUrl }}</code>).
+                Phones cannot reach localhost — set the public TLS API FQDN and redeploy web-wallet.
+              </span>
             </p>
             <p class="mt-4 text-xs text-gray-500">
               Local emulator: <code class="rounded bg-gray-100 px-1">adb reverse tcp:7115 tcp:7115</code>
@@ -154,7 +172,8 @@ type PairingCreated = {
     expiresAt: number;
     ttlMs: number;
     webWalletBaseUrl?: string;
-    walletApi2BaseUrl?: string;
+    walletApi2BaseUrl?: string | null;
+    apiBaseIsLocalFallback?: boolean;
 };
 
 type PairingStatus = {

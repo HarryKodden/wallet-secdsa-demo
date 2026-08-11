@@ -36,6 +36,7 @@ export default defineEventHandler(async (event) => {
         deviceLabel: claimed.deviceLabel,
         expiresAt: claimed.expiresAt,
         webWalletBaseUrl,
-        walletApi2BaseUrl,
+        walletApi2BaseUrl: walletApi2BaseUrl || null,
+        apiBaseIsLocalFallback: live.apiBaseIsLocalFallback && !claimed.walletApi2BaseUrl,
     };
 });
