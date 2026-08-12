@@ -1,4 +1,4 @@
-import {createError, defineEventHandler, getCookie, getRouterParam, readBody} from "h3";
+import {createError, defineEventHandler, getCookie, getHeader, getRouterParam, readBody} from "h3";
 import {useRuntimeConfig} from "#imports";
 
 /**
@@ -59,10 +59,25 @@ async function syncWalletApi2Unlock(
         config.walletApi2Proxy || process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
     ).replace(/\/$/, "");
     const headers: Record<string, string> = {"Content-Type": "application/json"};
-    const cookieToken = getCookie(event, "auth.token");
-    if (cookieToken) {
-        headers.Authorization = `Bearer ${cookieToken}`;
+
+    // Prefer the caller's Authorization (paired mobile sends Bearer JWT from
+    // /auth/pair/exchange). Fall back to the web SPA auth.token cookie.
+    // Matching [...path].ts — without this, SoftHSM unlock succeeds then
+    // wallet-api2 returns 401 in ~0ms and the UI looks like a wrong PIN.
+    const inboundAuth =
+        getHeader(event, "authorization") ||
+        getHeader(event, "ktor-authnz-auth");
+    if (inboundAuth) {
+        headers.Authorization = inboundAuth.startsWith("Bearer ")
+            ? inboundAuth
+            : `Bearer ${inboundAuth}`;
+    } else {
+        const cookieToken = getCookie(event, "auth.token");
+        if (cookieToken) {
+            headers.Authorization = `Bearer ${cookieToken}`;
+        }
     }
+
     const res = await fetch(`${targetBase}/wallet/${encodeURIComponent(walletId)}/keys/secdsa/unlock`, {
         method: "POST",
         headers,
@@ -70,8 +85,16 @@ async function syncWalletApi2Unlock(
     });
     if (!res.ok) {
         const text = await res.text().catch(() => "");
+        if (res.status === 401 || res.status === 403) {
+            throw createError({
+                statusCode: 401,
+                statusMessage:
+                    text.trim() ||
+                    "wallet-api2 rejected unlock (missing or invalid session token). Re-pair the device or sign in again.",
+            });
+        }
         throw createError({
-            statusCode: res.status === 401 ? 401 : 502,
+            statusCode: 502,
             statusMessage:
                 text.trim() ||
                 "wallet-api2 SECDSA unlock failed — proof signing will not work until unlock succeeds",
