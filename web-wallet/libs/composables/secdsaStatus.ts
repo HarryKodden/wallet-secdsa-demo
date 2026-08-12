@@ -1,3 +1,6 @@
+import {getCachedWscaStatus, setCachedWscaStatus} from "./localSecretsStore";
+import {useUserStore} from "@waltid-web-wallet/stores/user";
+
 export type SecdsaKeyValidity = {
     keyId: string;
     valid: boolean | null;
@@ -24,16 +27,52 @@ export type SecdsaStatusResponse = {
     error?: string | null;
 };
 
+/** SoftHSM status changes rarely within a page session — short IndexedDB TTL. */
+const STATUS_CACHE_TTL_MS = 45_000;
+
+/**
+ * Fetch SoftHSM / SECDSA status for a wallet.
+ * Uses [localSecretsStore] when a walt.id account id is available (PRF-encrypted
+ * when a passkey PRF key is in session; plain IndexedDB otherwise).
+ */
 export async function fetchSecdsaStatus(
     walletId: string,
     accountId?: string,
+    options?: {force?: boolean},
 ): Promise<SecdsaStatusResponse | null> {
     if (!walletId) return null;
+
+    const waltAccountId = useUserStore().user?.id?.trim() || "";
+    const cacheName = accountId
+        ? `${walletId}:${accountId}`
+        : walletId;
+
+    if (!options?.force && waltAccountId) {
+        try {
+            const cached = await getCachedWscaStatus(waltAccountId, cacheName);
+            if (
+                cached?.status &&
+                typeof cached.cachedAt === "number" &&
+                Date.now() - cached.cachedAt < STATUS_CACHE_TTL_MS
+            ) {
+                return cached.status as SecdsaStatusResponse;
+            }
+        } catch (e) {
+            console.warn("[secdsaStatus] cache read failed", e);
+        }
+    }
+
     const qs = accountId ? `?accountId=${encodeURIComponent(accountId)}` : "";
     try {
-        return await $fetch<SecdsaStatusResponse>(
+        const status = await $fetch<SecdsaStatusResponse>(
             `/wallet-api/wallet/${walletId}/keys/secdsa/status${qs}`,
         );
+        if (waltAccountId && status) {
+            void setCachedWscaStatus(waltAccountId, cacheName, status).catch((e) =>
+                console.warn("[secdsaStatus] cache write failed", e),
+            );
+        }
+        return status;
     } catch (e) {
         console.warn("SECDSA status check failed", e);
         return null;
