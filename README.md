@@ -34,7 +34,7 @@ Self-contained Docker Compose demo:
 | Auth accounts (email/password) | File volume `wallet-api2-accounts` (`WALLET2_ACCOUNT_STORE_PATH`) |
 | SECDSA keys | Memory WSCD in `secdsa` — **not** durable across secdsa restart |
 | Secrets | Copy [`.env.example`](.env.example) → `.env`; never commit `.env` |
-| Binary build | `*/api2/dist/` is **not** in git — build with `./scripts/build-api2.sh` (wallet locally; CI builds all three) |
+| Binary build | `wallet-api2/dist/` is **not** in git — build with `./scripts/build-api2.sh` (JDK 21+; CI builds wallet-api2 only) |
 
 Keep published ports on localhost. Rotate demo keys before any non-local use.
 Avoid `docker compose down -v` unless you intend to wipe Postgres and accounts.
@@ -42,16 +42,17 @@ After restarting only `secdsa`, regenerate keys/DIDs (lab WSCD is in-memory).
 
 ## Quick start
 
-> If `~/Projects/waltid-identity/docker-compose` is already running, either stop it
+> If a **separate** upstream [walt.id docker-compose](https://github.com/walt-id/waltid-identity/tree/main/docker-compose) stack is already running on this machine, either stop it
 > (`docker compose down` there) **or** change the `*_HOST_PORT` values in `.env`
 > (e.g. `WEB_WALLET_HOST_PORT=8115`, `WALLET_API2_HOST_PORT=8006`, `SECDSA_HOST_PORT=28080`).
+> This demo does **not** require cloning waltid-identity.
 
 ```bash
 cd ~/Projects/wallet-secdsa-demo
 
 cp .env.example .env   # fill OIDC_* if you use login
 
-# Required once (needs sibling repos — see below)
+# Required once (standalone build — no sibling repos)
 ./scripts/build-wallet-api2.sh
 
 ./scripts/up.sh
@@ -282,6 +283,7 @@ docker compose build wallet-api2
 
 Frozen holder HTTP surface + smoke: [docs/http-contract.md](docs/http-contract.md),
 `./scripts/smoke-holder-contract.sh`.
+
 ## Releases & GHCR images
 
 CI publishes multi-arch images to GHCR. On every push to `main`: `:latest` and `:sha-<commit>`.
