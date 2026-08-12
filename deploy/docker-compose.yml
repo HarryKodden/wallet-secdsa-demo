@@ -67,7 +67,8 @@ services:
     restart: unless-stopped
 
   issuer-api2:
-    image: ghcr.io/harrykodden/wallet-secdsa-demo/issuer-api2:${VERSION_TAG}
+    # Stock walt.id image (Chapter F Phase 4). Do not pin to demo VERSION_TAG.
+    image: ${ISSUER_API2_IMAGE:-waltid/issuer-api2:${WALTID_API2_TAG:-stable}}
     env_file: .env
     environment:
       ISSUER_API2_PORT: "7005"
@@ -83,7 +84,8 @@ services:
     restart: unless-stopped
 
   verifier-api2:
-    image: ghcr.io/harrykodden/wallet-secdsa-demo/verifier-api2:${VERSION_TAG}
+    # Stock walt.id image (Chapter F Phase 4). Do not pin to demo VERSION_TAG.
+    image: ${VERIFIER_API2_IMAGE:-waltid/verifier-api2:${WALTID_API2_TAG:-stable}}
     env_file: .env
     environment:
       VERIFIER_API2_PORT: "7004"

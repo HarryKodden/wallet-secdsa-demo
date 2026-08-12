@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build waltid-verifier-api2 into ./verifier-api2/dist
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec "$ROOT/scripts/build-api2.sh" verifier
+# Verifier-api2 is no longer built from waltid-identity.
+# Use stock: waltid/verifier-api2:stable (see docker-compose.yml VERIFIER_API2_IMAGE).
+echo "verifier-api2: use Docker Hub waltid/verifier-api2 (no local build)." >&2
+exit 0

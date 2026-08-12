@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build waltid-issuer-api2 into ./issuer-api2/dist
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec "$ROOT/scripts/build-api2.sh" issuer
+# Issuer-api2 is no longer built from waltid-identity.
+# Use stock: waltid/issuer-api2:stable (see docker-compose.yml ISSUER_API2_IMAGE).
+echo "issuer-api2: use Docker Hub waltid/issuer-api2 (no local build)." >&2
+exit 0

@@ -1,28 +1,42 @@
 # wallet-api2 (SECDSA-enabled)
 
-Docker image for OID4VC wallet-api2 with the SECDSA key backend.
+Standalone Gradle app: published walt.id **0.23.1** libs + in-repo
+`secdsa-waltid-adapter` + small overlays (`Wallet2RouteHandler`, event log,
+auth/PIN routes). **No waltid-identity checkout.**
 
-## Build artefacts (`dist/`)
-
-`dist/` is **not** committed. Produce it from sibling checkouts:
+## Build
 
 ```bash
-./scripts/build-wallet-api2.sh
+./scripts/build-wallet-api2.sh   # → wallet-api2/dist
 docker compose build wallet-api2
 ```
 
 | Env | Default |
 |-----|---------|
-| `WALTID_IDENTITY_PATH` | `~/Projects/waltid-identity` ([waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa) checkout) |
-| `SECDSA_ADAPTER_PATH` | `~/Projects/secdsa-waltid-adapter` |
+| `JAVA_HOME` | Homebrew OpenJDK / JDK 21+ |
+
+## Layout
+
+| Path | Role |
+|------|------|
+| `src/main/kotlin/id/walt/wallet2/` | App Main, auth, SECDSA unlock |
+| `…/server/handlers/Wallet2RouteHandler.kt` | Overlay: `backend=secdsa` generate (Phase 2: SECDSA-only) |
+| `…/server/events/Wallet2EventLog.kt` | Overlay: in-memory event log |
+| `../secdsa-waltid-adapter/` | Compiled into this project |
+| `config/` | Runtime HOCON (baked into image) |
+| `dist/` | `installDist` output (gitignored) |
 
 ## Auth / ownership
 
 - `config/_features.conf` enables **`auth`** and **`wallet2-persistence`**.
 - Register / login: `POST /auth/register`, `POST /auth/emailpass`.
-- Wallet list/create require a JWT; wallets are linked to the account (`sub`).
-- The Nuxt web-wallet bridges OIDC → a JIT wallet-api2 account (see
-  `OIDC_BRIDGE_SECRET` in `.env.example`). Do not send IdP JWTs as Bearer
-  tokens to wallet-api2.
-- Account directory is **in-memory** (upstream); keep this stack on localhost and
-  expect re-register after API restarts.
+- Nuxt bridges OIDC → JIT wallet-api2 account (`OIDC_BRIDGE_SECRET`).
+- Optional: `WALLET2_ACCOUNT_STORE_PATH` persists email/password accounts.
+
+Holder HTTP contract: [docs/http-contract.md](../docs/http-contract.md).
+Smoke: `./scripts/smoke-holder-contract.sh`.
+
+## Issuer / verifier
+
+Not built here. Use stock Docker Hub `waltid/issuer-api2` and
+`waltid/verifier-api2` (see root `docker-compose.yml`).

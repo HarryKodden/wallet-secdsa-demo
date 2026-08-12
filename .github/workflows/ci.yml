@@ -13,12 +13,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  # Private SECDSA build dependencies (same GitHub user/org).
-  # Checkout requires repository secret DEPENDENCY_TOKEN — a PAT (classic or
-  # fine-grained) with contents:read on both repos. GITHUB_TOKEN cannot access
-  # private repos other than the workflow's own repository.
-  WALTID_IDENTITY_REPO: HarryKodden/waltid-identity-secdsa
-  SECDSA_ADAPTER_REPO: HarryKodden/secdsa-waltid-adapter
 
 jobs:
   docker-web-wallet:
@@ -86,37 +80,12 @@ jobs:
           cache-from: type=gha,scope=web-wallet
           cache-to: type=gha,mode=max,scope=web-wallet
 
-  prepare-api2:
-    name: Prepare api2 dists
+  prepare-wallet-api2:
+    name: Prepare wallet-api2 dist
     runs-on: ubuntu-latest
-    env:
-      # Map secret to env so we can guard on it (secrets cannot be used in if: directly).
-      DEPENDENCY_TOKEN: ${{ secrets.DEPENDENCY_TOKEN }}
     steps:
       - name: Checkout demo
         uses: actions/checkout@v4
-
-      - name: Require DEPENDENCY_TOKEN
-        if: env.DEPENDENCY_TOKEN == ''
-        run: |
-          echo "::error::Missing secret DEPENDENCY_TOKEN. Create a fine-grained PAT with Contents: Read on ${{ env.WALTID_IDENTITY_REPO }} and ${{ env.SECDSA_ADAPTER_REPO }}, then: gh secret set DEPENDENCY_TOKEN -R ${{ github.repository }}"
-          exit 1
-
-      - name: Checkout waltid-identity-secdsa
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.WALTID_IDENTITY_REPO }}
-          ref: ${{ vars.WALTID_IDENTITY_REF || 'main' }}
-          token: ${{ env.DEPENDENCY_TOKEN }}
-          path: .deps/waltid-identity
-
-      - name: Checkout secdsa-waltid-adapter
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.SECDSA_ADAPTER_REPO }}
-          ref: ${{ vars.SECDSA_ADAPTER_REF || 'main' }}
-          token: ${{ env.DEPENDENCY_TOKEN }}
-          path: .deps/secdsa-waltid-adapter
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -124,11 +93,8 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Build wallet / issuer / verifier dists
-        env:
-          WALTID_IDENTITY_PATH: ${{ github.workspace }}/.deps/waltid-identity
-          SECDSA_ADAPTER_PATH: ${{ github.workspace }}/.deps/secdsa-waltid-adapter
-        run: ./scripts/build-api2.sh
+      - name: Build wallet-api2 dist
+        run: ./scripts/build-api2.sh wallet
 
       - name: Upload wallet-api2 dist
         uses: actions/upload-artifact@v4
@@ -137,31 +103,13 @@ jobs:
           path: wallet-api2/dist
           retention-days: 1
 
-      - name: Upload issuer-api2 dist
-        uses: actions/upload-artifact@v4
-        with:
-          name: issuer-api2-dist
-          path: issuer-api2/dist
-          retention-days: 1
-
-      - name: Upload verifier-api2 dist
-        uses: actions/upload-artifact@v4
-        with:
-          name: verifier-api2-dist
-          path: verifier-api2/dist
-          retention-days: 1
-
-  docker-api2:
-    name: Docker / GHCR (${{ matrix.service }})
-    needs: prepare-api2
+  docker-wallet-api2:
+    name: Docker / GHCR (wallet-api2)
+    needs: prepare-wallet-api2
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [wallet-api2, issuer-api2, verifier-api2]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -169,14 +117,14 @@ jobs:
       - name: Download dist
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.service }}-dist
-          path: ${{ matrix.service }}/dist
+          name: wallet-api2-dist
+          path: wallet-api2/dist
 
       - name: Image name
         id: image
         run: |
           owner_repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          echo "name=${{ env.REGISTRY }}/${owner_repo}/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+          echo "name=${{ env.REGISTRY }}/${owner_repo}/wallet-api2" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -207,11 +155,11 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.service }}
-          file: ./${{ matrix.service }}/Dockerfile
+          context: ./wallet-api2
+          file: ./wallet-api2/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          cache-from: type=gha,scope=wallet-api2
+          cache-to: type=gha,mode=max,scope=wallet-api2

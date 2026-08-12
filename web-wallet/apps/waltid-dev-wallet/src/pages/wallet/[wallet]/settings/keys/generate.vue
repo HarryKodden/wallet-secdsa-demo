@@ -2,6 +2,9 @@
     <CenterMain>
         <div class="mt-1 border p-4 rounded-2xl">
             <p class="text-base font-semibold">Generate key</p>
+            <p class="mt-1 text-sm text-gray-600">
+              This demo wallet only creates SECDSA SoftHSM keys (other KMS backends are disabled).
+            </p>
             <div>
                 <div
                     class="mt-1 space-y-8 border-gray-900/10 pb-12 sm:space-y-0 sm:divide-y sm:divide-gray-900/10 sm:border-t sm:pb-0">
@@ -17,7 +20,6 @@
                             </div>
                         </div>
 
-                        <!-- Key Generation Request -->
                         <div class="sm:grid sm:grid-cols-3 sm:items-start sm:gap-4 sm:py-4">
                             <label class="block text-sm font-medium leading-6 text-gray-900 sm:pt-1.5"
                                    for="keyGenerationRequest">
@@ -31,8 +33,7 @@
                                         {{ option.keyGenerationRequest[0] }}
                                     </option>
                                 </select>
-                                <p v-if="data.keyGenerationRequest.type === 'secdsa'"
-                                   class="mt-2 max-w-md text-xs text-gray-500">
+                                <p class="mt-2 max-w-md text-xs text-gray-500">
                                   SoftHSM keeps one user key per account. If you deleted the key from this wallet,
                                   Generate re-imports the existing SoftHSM key (same
                                   <code class="rounded bg-gray-100 px-1">secdsa:&lt;account&gt;:1</code>).
@@ -41,7 +42,6 @@
                             </div>
                         </div>
 
-                        <!-- Key Type -->
                         <div class="sm:grid sm:grid-cols-3 sm:items-start sm:gap-4 sm:py-4">
                             <label class="block text-sm font-medium leading-6 text-gray-900 sm:pt-1.5" for="keyType">
                                 Key Type
@@ -49,11 +49,7 @@
                             <div class="mt-2 sm:col-span-2 sm:mt-0">
                                 <select id="keyType" v-model="data.type"
                                         class="block px-2 w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:max-w-xs sm:text-sm sm:leading-6">
-                                    <option v-for="keyType in options.find(
-                    (option) =>
-                      option.keyGenerationRequest[1] ==
-                      data.keyGenerationRequest.type
-                  )?.keyType" :key="keyType[1]" :value="keyType[1]">
+                                    <option v-for="keyType in options[0].keyType" :key="keyType[1]" :value="keyType[1]">
                                         {{ keyType[0] }}
                                     </option>
                                 </select>
@@ -62,26 +58,12 @@
                     </div>
                 </div>
 
-                <!-- Config Fields -->
-                <div v-if="options.find(
-          (option) =>
-            option.keyGenerationRequest[1] ==
-            data.keyGenerationRequest.type
-        )?.config?.length"
-                     class="mt-1 space-y-8 border-gray-900/10 pb-12 sm:space-y-0 sm:divide-gray-900/10 sm:border-t sm:pb-0">
-                    <div class="sm:grid sm:grid-cols-3 sm:items-start sm:gap-4 sm:py-2" v-for="config in options.find(
-            (option) =>
-              option.keyGenerationRequest[1] ==
-              data.keyGenerationRequest.type
-          )?.config" :key="config">
+                <div class="mt-1 space-y-8 border-gray-900/10 pb-12 sm:space-y-0 sm:divide-gray-900/10 sm:border-t sm:pb-0">
+                    <div class="sm:grid sm:grid-cols-3 sm:items-start sm:gap-4 sm:py-2" v-for="config in options[0].config" :key="config">
                         <label class="block text-sm font-medium leading-6 text-gray-900 sm:pt-1.5">
                             {{ config.charAt(0).toUpperCase() + config.slice(1) }}
                         </label>
-                        <textarea v-if="config.includes('signingKeyPem')"
-                                  v-model="data.keyGenerationRequest.config[config]"
-                                  class="px-2 block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:max-w-xs sm:text-sm sm:leading-6"
-                                  rows="4"></textarea>
-                        <input v-else v-model="data.keyGenerationRequest.config[config]"
+                        <input v-model="data.keyGenerationRequest.config[config]"
                                class="px-2 block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:max-w-xs sm:text-sm sm:leading-6"
                                type="text"/>
                     </div>
@@ -89,7 +71,6 @@
             </div>
         </div>
 
-        <!-- Submit Button -->
         <div class="mt-2 flex items-center justify-end gap-x-6">
             <button
                 class="inline-flex justify-center bg-blue-500 hover:bg-blue-600 focus-visible:outline-blue-600 rounded-md px-3 py-2 text-sm font-semibold text-white shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -102,11 +83,9 @@
             </button>
         </div>
 
-        <!-- Response Section -->
         <div v-if="response && response !== ''" class="mt-6 border p-4 rounded-2xl">
             <p class="text-base font-semibold">Response</p>
             <div
-
                 class="mt-1 space-y-6 border-gray-900/10 pb-6 sm:space-y-0 sm:divide-y sm:divide-gray-900/10 sm:border-t sm:pb-0">
                 <p class="mt-2 flex items-center bg-green-100 p-3 rounded-xl overflow-x-scroll">
                     <CheckIcon class="w-5 h-5 mr-1 text-green-600"/>
@@ -137,87 +116,13 @@ const loading = ref(false);
 const response = ref("");
 const {promptPin, defaultAccountId, defaultBaseUrl} = useSecdsaPin();
 
+/** Phase 2: SECDSA SoftHSM only. */
 const options = ref([
-    {
-        keyGenerationRequest: ["JWK", "jwk"],
-        keyType: [
-            ["EdDSA_Ed25519", "Ed25519"],
-            ["ECDSA_Secp256k1", "secp256k1"],
-            ["ECDSA_Secp256r1", "secp256r1"],
-            ["RSA", "RSA"],
-        ],
-        config: [],
-    },
-    {
-        keyGenerationRequest: ["TSE", "tse"],
-        keyType: [
-            ["EdDSA_Ed25519", "Ed25519"],
-            ["RSA", "RSA"],
-        ],
-        config: ["server", "accessKey"],
-    },
-    {
-        keyGenerationRequest: ["OCI REST API", "oci-rest-api"],
-        keyType: [
-            ["ECDSA_Secp256r1", "secp256r1"],
-            ["RSA", "RSA"],
-        ],
-        config: [
-            "tenancyOcid",
-            "userOcid",
-            "fingerprint",
-            "cryptoEndpoint",
-            "managementEndpoint",
-            "signingKeyPem",
-        ],
-    },
-    {
-        keyGenerationRequest: ["OCI", "oci"],
-        keyType: [["ECDSA_Secp256r1", "secp256r1"]],
-        config: ["vaultId", "compartmentId"],
-    },
-    {
-        keyGenerationRequest: ["AWS with AccessKey Auth", "aws-access-key"],
-        keyType: [
-            ["ECDSA_Secp256r1", "secp256r1"],
-            ["ECDSA_Secp256k1", "secp256k1"],
-            ["RSA", "RSA"]
-        ],
-        config: ["accessKeyId", "secretAccessKey", "region"]
-    },
-    {
-        keyGenerationRequest: ["AWS with RoleName Auth", "aws-role-name"],
-        keyType: [
-            ["ECDSA_Secp256r1", "secp256r1"],
-            ["ECDSA_Secp256k1", "secp256k1"],
-            ["RSA", "RSA"]
-        ],
-        config: ["roleName", "region"]
-    },
-    {
-      keyGenerationRequest: ["Azure with Client access key", "azure-rest-api"],
-        keyType: [
-            ["ECDSA_Secp256r1", "secp256r1"],
-            ["ECDSA_Secp256k1", "secp256k1"],
-            ["RSA", "RSA"]
-        ],
-        config: ["clientId", "clientSecret", "tenantId", "keyVaultUrl"]
-    },
-  {
-    keyGenerationRequest: ["Azure Key Vault and Managed Identity", "azure"],
-    keyType: [
-      ["ECDSA_Secp256r1", "secp256r1"],
-      ["ECDSA_Secp256k1", "secp256k1"],
-      ["RSA", "RSA"]
-    ],
-    config: ["keyVaultUrl"]
-  },
   {
     keyGenerationRequest: ["SECDSA SoftHSM", "secdsa"],
     keyType: [
       ["ECDSA_Secp256r1", "secp256r1"],
     ],
-    // PIN is collected via modal — not a static config field
     config: ["baseUrl", "accountId"]
   },
 ]);
@@ -229,93 +134,48 @@ const data = reactive<{
 }>({
     name: '',
     keyGenerationRequest: {
-        type: options.value[0].keyGenerationRequest[1],
-        config: {},
+        type: "secdsa",
+        config: {
+            baseUrl: defaultBaseUrl(),
+            accountId: defaultAccountId(),
+        },
     },
-    type: options.value[0].keyType[0][1],
+    type: "secp256r1",
 });
 
 const currentWallet = useCurrentWallet();
 
-// When switching KMS type, reset config then apply SECDSA lab defaults
-watch(
-    () => data.keyGenerationRequest.type,
-    (type) => {
-        data.keyGenerationRequest.config = {};
-        if (type === "secdsa") {
-            data.keyGenerationRequest.config.baseUrl = defaultBaseUrl();
-            data.keyGenerationRequest.config.accountId = defaultAccountId();
-            data.type = "secp256r1";
-        }
-    },
-);
-
 async function generateKey() {
-    const keyGenerationRequest = data.keyGenerationRequest;
-    const type = keyGenerationRequest?.type;
-    const config = keyGenerationRequest?.config;
+    const config = data.keyGenerationRequest.config;
+    const accountId = (config?.accountId && config.accountId.trim() !== "")
+        ? config.accountId.trim()
+        : defaultAccountId();
+    let baseUrl = (config?.baseUrl && config.baseUrl.trim() !== "")
+        ? config.baseUrl.trim()
+        : defaultBaseUrl();
+    baseUrl = baseUrl
+        .replace("://localhost:", "://host.docker.internal:")
+        .replace("://127.0.0.1:", "://host.docker.internal:");
+    const pin = await promptPin(
+        "Enter the SECDSA PIN for this account",
+        {accountId, walletId: currentWallet.value},
+    );
+    if (!pin) return;
 
-    // Build the body based on the key generation type and config
-    const body: any = {
-        backend: type?.includes("aws") ? "aws" : type,
+    const body: Record<string, unknown> = {
+        backend: "secdsa",
         keyType: data.type,
-        config: {},
+        config: {baseUrl, accountId, pin},
     };
     if (data.name && data.name.trim() !== '') {
         body.name = data.name.trim();
     }
 
-    // Configure the 'config' object depending on the type (AWS, Azure, etc.)
-    if (type === "aws-access-key") {
-        body.config.auth = {
-            accessKeyId: config?.accessKeyId,
-            secretAccessKey: config?.secretAccessKey,
-            region: config?.region,
-        };
-    } else if (type === "aws-role-name") {
-        body.config.auth = {
-            roleName: config?.roleName,
-            region: config?.region,
-        };
-    } else if (type === "azure-rest-api") {
-        body.config.auth = {
-            clientId: config?.clientId,
-            clientSecret: config?.clientSecret,
-            tenantId: config?.tenantId,
-            keyVaultUrl: config?.keyVaultUrl,
-        };
-    } else if (type === "azure") {
-      body.config.auth = {
-        keyVaultUrl: config?.keyVaultUrl,
-      };
-    } else if (type === "secdsa") {
-        const accountId = (config?.accountId && config.accountId.trim() !== "")
-            ? config.accountId.trim()
-            : defaultAccountId();
-        let baseUrl = (config?.baseUrl && config.baseUrl.trim() !== "")
-            ? config.baseUrl.trim()
-            : defaultBaseUrl();
-        // wallet-api2 runs in Docker — localhost would be the container, not the lab
-        baseUrl = baseUrl
-            .replace("://localhost:", "://host.docker.internal:")
-            .replace("://127.0.0.1:", "://host.docker.internal:");
-        const pin = await promptPin(
-            "Enter the SECDSA PIN for this account",
-            {accountId, walletId: currentWallet.value},
-        );
-        if (!pin) return;
-        body.config = {baseUrl, accountId, pin};
-    } else {
-        // For other types, just include the config directly
-        body.config = {...config};
-    }
-
     loading.value = true;
-
     try {
         response.value = await $fetch(`/wallet-api/wallet/${currentWallet.value}/keys/generate`, {
             method: "POST",
-            body, // fetch automatically handles JSON conversion
+            body,
             headers: {
                 "Content-Type": "application/json",
             },
@@ -330,7 +190,6 @@ async function generateKey() {
         loading.value = false;
     }
 }
-
 
 useHead({
     title: "Generate key - walt.id",
