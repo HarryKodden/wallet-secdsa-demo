@@ -9,7 +9,12 @@ import {useRuntimeConfig} from "#imports";
  *   2. POST /api/wallets/select — select account; read `activated`
  *   3a. Not activated → POST /api/activate {pin}  (Protocol 4 — locks PIN to account)
  *   3b. Already activated → POST /api/instruct {pin, op:ECHO} to verify PIN
- *   4. Forward unlock to wallet-api2 (SecdsaPinSession — required for SIGN / JWT proofs)
+ *   4. Best-effort sync to wallet-api2 SecdsaPinSession (when a session token is present)
+ *
+ * Auth model:
+ *   - Web SPA: auth.token cookie → Nitro syncs wallet-api2 in step 4
+ *   - Paired mobile: SoftHSM-only here (often no cookie); phone then POSTs
+ *     wallet-api2 `/keys/secdsa/unlock` with the pairing Bearer JWT itself
  *
  * SoftHSM quirk: /api/activate on an already-activated account returns
  * "already activated" for ANY pin (including wrong ones). Never treat that as
@@ -48,22 +53,23 @@ function isBlocked(msg: string, data: SecdsaState): boolean {
     return /block/i.test(msg) || data.wsca?.blocked === true;
 }
 
+/**
+ * Push PIN into wallet-api2 process memory when we have a session token.
+ * Never fails the SoftHSM unlock — mobile fills SecdsaPinSession via a direct
+ * wallet-api2 call with its pairing JWT when this returns false.
+ */
 async function syncWalletApi2Unlock(
     event: Parameters<typeof defineEventHandler>[0] extends (e: infer E) => unknown ? E : never,
     walletId: string,
     accountId: string,
     pin: string,
-): Promise<void> {
+): Promise<boolean> {
     const config = useRuntimeConfig(event);
     const targetBase = String(
         config.walletApi2Proxy || process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
     ).replace(/\/$/, "");
     const headers: Record<string, string> = {"Content-Type": "application/json"};
 
-    // Prefer the caller's Authorization (paired mobile sends Bearer JWT from
-    // /auth/pair/exchange). Fall back to the web SPA auth.token cookie.
-    // Matching [...path].ts — without this, SoftHSM unlock succeeds then
-    // wallet-api2 returns 401 in ~0ms and the UI looks like a wrong PIN.
     const inboundAuth =
         getHeader(event, "authorization") ||
         getHeader(event, "ktor-authnz-auth");
@@ -78,27 +84,30 @@ async function syncWalletApi2Unlock(
         }
     }
 
-    const res = await fetch(`${targetBase}/wallet/${encodeURIComponent(walletId)}/keys/secdsa/unlock`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({accountId, pin}),
-    });
-    if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        if (res.status === 401 || res.status === 403) {
-            throw createError({
-                statusCode: 401,
-                statusMessage:
-                    text.trim() ||
-                    "wallet-api2 rejected unlock (missing or invalid session token). Re-pair the device or sign in again.",
-            });
-        }
-        throw createError({
-            statusCode: 502,
-            statusMessage:
-                text.trim() ||
-                "wallet-api2 SECDSA unlock failed — proof signing will not work until unlock succeeds",
+    if (!headers.Authorization) {
+        console.warn(
+            "[secdsa/unlock] No session token — SoftHSM-only (mobile should unlock wallet-api2 directly)",
+        );
+        return false;
+    }
+
+    try {
+        const res = await fetch(`${targetBase}/wallet/${encodeURIComponent(walletId)}/keys/secdsa/unlock`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({accountId, pin}),
         });
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            console.warn(
+                `[secdsa/unlock] wallet-api2 sync failed (${res.status}): ${text.slice(0, 200)}`,
+            );
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.warn("[secdsa/unlock] wallet-api2 sync error:", e);
+        return false;
     }
 }
 
@@ -131,8 +140,8 @@ export default defineEventHandler(async (event) => {
     }
 
     const completeUnlock = async (modeLabel: "setup" | "unlock") => {
-        await syncWalletApi2Unlock(event, walletId, accountId, pin);
-        return {ok: true, wsca: "activated", mode: modeLabel};
+        const walletApi2Synced = await syncWalletApi2Unlock(event, walletId, accountId, pin);
+        return {ok: true, wsca: "activated", mode: modeLabel, walletApi2Synced};
     };
 
     try {
