@@ -32,6 +32,7 @@ Self-contained Docker Compose demo:
 | Lab SoftHSM | OIDC users: WSCA account id = OIDC `sub`; first login sets a **6-digit PIN**. Email/lab fallback: `citizen-42` / `424242` |
 | Wallet / credential data | **Postgres** volume `postgres-data` (survives restart) |
 | Auth accounts (email/password) | File volume `wallet-api2-accounts` (`WALLET2_ACCOUNT_STORE_PATH`) |
+| Paired mobile devices | File volume `web-wallet-data` → `paired-devices.json` (survives Nitro restart) |
 | SECDSA keys | Memory WSCD in `secdsa` — **not** durable across secdsa restart |
 | Secrets | Copy [`.env.example`](.env.example) → `.env`; never commit `.env` |
 | Binary build | `wallet-api2/dist/` is **not** in git — build with `./scripts/build-api2.sh` (JDK 21+; CI builds wallet-api2 only) |
@@ -39,6 +40,30 @@ Self-contained Docker Compose demo:
 Keep published ports on localhost. Rotate demo keys before any non-local use.
 Avoid `docker compose down -v` unless you intend to wipe Postgres and accounts.
 After restarting only `secdsa`, regenerate keys/DIDs (lab WSCD is in-memory).
+
+**SECDSA is not certified LoA High / QEAA.** The SoftHSM lab binds holder keys in
+hardware for demos only — it is **not** an eIDAS high-assurance or EUDI wallet
+product. See [NOTICE](NOTICE) and
+[SECDSA USAGE.md](https://github.com/HarryKodden/SECDSA/blob/main/USAGE.md).
+
+### Assurance factors (demo LoA map)
+
+Rough wwWallet-style mapping of what each factor actually proves in this stack.
+These are **demo labels**, not a certified assurance scheme.
+
+| Factor | What it proves | Lost / rotated when… |
+|--------|----------------|----------------------|
+| Browser session cookie (`auth.token`) | walt.id account JWT for API calls | Logout, cookie expiry, Nitro/session wipe |
+| WebAuthn passkey | User presence + authenticator for login / pair gate | Passkey deleted on authenticator or server credential revoke |
+| Device pair JWT | Phone holds a one-shot exchange of the web session JWT | Pair revoke, JWT expiry (re-scan QR) |
+| OID4VP present + SECDSA PIN | Holder can SoftHSM-sign with the credential-bound key | Wrong PIN / SoftHSM wipe → regenerate key + DID + **re-receive** VC |
+| PRF-encrypted PIN blob | Browser can unlock SoftHSM without retyping PIN after passkey get() | See APP_SALT / passkey notes below |
+
+**APP_SALT / PRF blobs:** each walt.id account has a random `APP_SALT` in IndexedDB
+(domain separator for WebAuthn PRF → AES-GCM). It is **not** a secret, but if you
+clear site data, rotate/delete the salt, or delete the passkey, existing
+server-stored ciphertext for the PIN blob becomes **unreadable by design**. Enter
+the SoftHSM PIN again after a fresh passkey get(); the blob is re-encrypted.
 
 ## Quick start
 

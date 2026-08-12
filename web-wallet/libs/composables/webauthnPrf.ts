@@ -75,8 +75,9 @@ export function b64uEncode(bytes: Uint8Array): string {
 /**
  * Returns the stored APP_SALT for this account, or creates and persists a new one.
  * The salt is NOT secret — it's a stable domain-separation value so PRF output
- * is scoped to this app. Losing it means existing encrypted blobs are unreadable;
- * re-fetching them from the server recovers state.
+ * is scoped to this app. Losing it (clear site data, delete the salt, or delete the
+ * passkey) means existing PRF-encrypted PIN blobs are unreadable by design; the user
+ * must re-enter the SoftHSM PIN after a fresh passkey get() so the blob is rewritten.
  */
 export async function getOrCreateAppSalt(accountId: string): Promise<Uint8Array> {
     const key = `salt:${accountId}`;

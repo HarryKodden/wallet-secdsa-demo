@@ -136,6 +136,7 @@
               <p class="font-semibold text-gray-900">{{ d.label }}</p>
               <p class="text-gray-500">
                 {{ d.platform }} · paired {{ formatTime(d.pairedAt) }}
+                <span v-if="d.lastSeenAt"> · last seen {{ formatTime(d.lastSeenAt) }}</span>
               </p>
             </div>
             <button
@@ -188,6 +189,7 @@ type Device = {
     label: string;
     platform: string;
     pairedAt: number;
+    lastSeenAt?: number;
 };
 
 const pairing = ref<PairingCreated | null>(null);

@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 400, statusMessage: "Missing pairing code"});
     }
 
-    const claimed = claimPairing(code, {
+    const {pairing: claimed, device} = claimPairing(code, {
         label: body.deviceLabel,
         platform: body.platform,
     });
@@ -33,7 +33,10 @@ export default defineEventHandler(async (event) => {
         email: claimed.email,
         accountId: claimed.accountId,
         wscaAccountId: claimed.wscaAccountId,
+        deviceId: device.id,
         deviceLabel: claimed.deviceLabel,
+        pairedAt: device.pairedAt,
+        lastSeenAt: device.lastSeenAt,
         expiresAt: claimed.expiresAt,
         webWalletBaseUrl,
         walletApi2BaseUrl: walletApi2BaseUrl || null,

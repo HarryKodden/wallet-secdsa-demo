@@ -137,10 +137,15 @@ export function getPairing(code: string): PairingRecord | null {
     return pairings.get(code) ?? null;
 }
 
+export type ClaimPairingResult = {
+    pairing: PairingRecord;
+    device: RegisteredDevice;
+};
+
 export function claimPairing(
     code: string,
     device: {label?: string; platform?: string},
-): PairingRecord {
+): ClaimPairingResult {
     prune();
     const rec = pairings.get(code);
     if (!rec) {
@@ -174,11 +179,24 @@ export function claimPairing(
     devicesByAccount.set(rec.accountId, list);
     saveDevicesToDisk(allDevices());
 
-    return rec;
+    return {pairing: rec, device: registered};
 }
 
 export function listDevices(accountId: string): RegisteredDevice[] {
     return [...(devicesByAccount.get(accountId) ?? [])].sort((a, b) => b.pairedAt - a.pairedAt);
+}
+
+/** Bump lastSeenAt for a registered device (pairing heartbeat / unlock). */
+export function touchLastSeen(accountId: string, deviceId: string): RegisteredDevice | null {
+    const list = devicesByAccount.get(accountId) ?? [];
+    const idx = list.findIndex((d) => d.id === deviceId);
+    if (idx < 0) return null;
+    const updated: RegisteredDevice = {...list[idx], lastSeenAt: Date.now()};
+    const next = [...list];
+    next[idx] = updated;
+    devicesByAccount.set(accountId, next);
+    saveDevicesToDisk(allDevices());
+    return updated;
 }
 
 export function revokeDevice(accountId: string, deviceId: string): boolean {

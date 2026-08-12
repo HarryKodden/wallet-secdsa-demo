@@ -40,6 +40,9 @@ SECDSA is patent-encumbered. See:
 Do not use this stack for production or commercial deployments without an
 appropriate SECDSA license. This demo is educational / PoC only.
 
+SECDSA SoftHSM binding in this demo is **not** a certified eIDAS LoA High /
+QEAA or EUDI wallet product — hardware-bound lab keys for interop demos only.
+
 ---------------------------------------------------------------------------
 Web wallet logo (Flaticon)
 ---------------------------------------------------------------------------
