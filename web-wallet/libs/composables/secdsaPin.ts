@@ -150,22 +150,41 @@ export function useSecdsaPin() {
         walletId?: string | null;
     }): Promise<boolean> {
         const accountId = options?.accountId ?? defaultAccountId();
-
-        // --- Tier 1: cached PIN ---
+        const id = await resolveWalletId(options?.walletId);
         const securityStore = useSecurityStore();
+
+        // --- Tier 0: wallet-api2 already holds the PIN (process-memory session) ---
+        // Survives SPA navigations and full page reloads while wallet-api2 is up.
+        if (accountId && (options?.mode ?? "unlock") === "unlock") {
+            const status = await fetchSecdsaStatus(id, accountId);
+            if (status?.pinSessionActive === true) {
+                return true;
+            }
+        }
+
+        // --- Tier 1: browser-session PIN (Pinia) — refill wallet-api2 if needed ---
         const cachedPin = securityStore.secdsaPin;
         if (cachedPin && securityStore.secdsaPinAccountId === accountId) {
             try {
-                const id = await resolveWalletId(options?.walletId);
                 // Validate the cached PIN (also repopulates wallet-api2 SecdsaPinSession).
                 await $fetch(`/wallet-api/wallet/${id}/keys/secdsa/unlock`, {
                     method: "POST",
                     body: {accountId, pin: cachedPin, mode: "unlock"},
                 });
                 return true;
-            } catch {
-                // Cached PIN rejected — clear it and fall through to modal.
-                securityStore.setSecdsaPin(null, accountId);
+            } catch (e: unknown) {
+                const statusCode =
+                    e && typeof e === "object" && "statusCode" in e
+                        ? Number((e as {statusCode?: number}).statusCode)
+                        : e && typeof e === "object" && "status" in e
+                          ? Number((e as {status?: number}).status)
+                          : undefined;
+                // Only drop the cache on an explicit wrong-PIN / auth rejection.
+                if (statusCode === 401) {
+                    securityStore.setSecdsaPin(null, accountId);
+                } else {
+                    console.warn("[secdsa] Cached PIN re-unlock failed; keeping cache:", e);
+                }
             }
         }
 

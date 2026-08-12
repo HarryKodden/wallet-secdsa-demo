@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import nl.harrykodden.secdsa.waltid.client.SecdsaPinSession
 import nl.harrykodden.secdsa.waltid.client.WscaClient
 import nl.harrykodden.secdsa.waltid.config.WscaConfig
 import nl.harrykodden.secdsa.waltid.key.SECDSAKey
@@ -47,6 +48,12 @@ data class SecdsaStatusResponse(
     val accountId: String,
     val activated: Boolean = false,
     val hasUserKey: Boolean = false,
+    /**
+     * True when this wallet-api2 process already holds the SoftHSM PIN in
+     * [SecdsaPinSession] for [accountId] (survives SPA navigations; cleared on
+     * process restart). UI uses this to skip the PIN modal.
+     */
+    val pinSessionActive: Boolean = false,
     val backend: String? = null,
     val wscaPublicKeyHex: String? = null,
     val keys: List<SecdsaKeyValidity> = emptyList(),
@@ -155,6 +162,7 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
         return SecdsaStatusResponse(
             reachable = false,
             accountId = accountId,
+            pinSessionActive = SecdsaPinSession.isUnlocked(accountId),
             error = "WSCA unreachable at ${wscaBaseUrl()}",
             keys = keyInfos.map { SecdsaKeyValidity(it.keyId, null, "WSCA unreachable") },
             dids = didEntries.map { SecdsaDidValidity(it.did, null, "WSCA unreachable") },
@@ -165,6 +173,7 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
         return SecdsaStatusResponse(
             reachable = false,
             accountId = accountId,
+            pinSessionActive = SecdsaPinSession.isUnlocked(accountId),
             error = e.message ?: "Failed to read WSCA state",
             keys = keyInfos.map { SecdsaKeyValidity(it.keyId, null, "WSCA error") },
             dids = didEntries.map { SecdsaDidValidity(it.did, null, "WSCA error") },
@@ -221,6 +230,7 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
         accountId = accountId,
         activated = snapshot.activated,
         hasUserKey = snapshot.hasUserKey,
+        pinSessionActive = SecdsaPinSession.isUnlocked(accountId),
         backend = snapshot.backend,
         wscaPublicKeyHex = snapshot.userPubHex,
         keys = keyStatuses,

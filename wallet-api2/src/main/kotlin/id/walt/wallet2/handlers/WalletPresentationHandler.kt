@@ -3,6 +3,7 @@
 package id.walt.wallet2.handlers
 
 import id.walt.credentials.formats.DigitalCredential
+import id.walt.credentials.signatures.SdJwtCredentialSignature
 import id.walt.crypto.keys.DirectSerializedKey
 import id.walt.crypto.keys.Key
 import id.walt.crypto.utils.Base64Utils.decodeFromBase64Url
@@ -1223,11 +1224,26 @@ object WalletPresentationHandler {
         val sdvc = this as? id.walt.credentials.signatures.sdjwt.SelectivelyDisclosableVerifiableCredential
         return RawDcqlCredential(
             id = id,
-            format = format,
+            // Stock 0.23.1 W3C+SD-JWT reports jwt_vc_json; eduWallet DCQL asks for vc+sd-jwt.
+            format = openId4VpDcqlFormat(),
             data = credentialData,
             originalCredential = this,
             disclosures = sdvc?.disclosures?.map { DcqlDisclosure(it.name, it.value) }
         )
+    }
+}
+
+/**
+ * OpenID4VP / DCQL format for matching. Stock walt.id 0.23.1 maps W3C credentials
+ * with [SdJwtCredentialSignature] to `jwt_vc_json`, so DCQL queries for
+ * `vc+sd-jwt` / `dc+sd-jwt` never match. Prefer JWT `typ` when present.
+ */
+internal fun DigitalCredential.openId4VpDcqlFormat(): String {
+    val sdJwt = signature as? SdJwtCredentialSignature ?: return format
+    return when (val typ = sdJwt.jwtHeader?.get("typ")?.jsonPrimitive?.contentOrNull) {
+        "dc+sd-jwt" -> "dc+sd-jwt"
+        "vc+sd-jwt", "vc+sd_jwt" -> "vc+sd-jwt"
+        else -> "vc+sd-jwt"
     }
 }
 

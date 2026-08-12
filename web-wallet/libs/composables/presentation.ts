@@ -428,13 +428,11 @@ export async function usePresentation(query: any) {
       }
 
       // Success with no redirect — normal for lab / cross-device verifiers.
-      await navigateTo(
-        {
-          path: `/wallet/${currentWallet.value}`,
-          query: {presented: "1"},
-        },
-        {external: true},
-      );
+      // Keep SPA navigation so the in-memory SoftHSM PIN cache survives.
+      await navigateTo({
+        path: `/wallet/${currentWallet.value}`,
+        query: {presented: "1"},
+      });
     } catch (e: any) {
       failed.value = true;
       const msg =

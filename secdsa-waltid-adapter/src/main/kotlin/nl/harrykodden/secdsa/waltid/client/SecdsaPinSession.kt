@@ -29,4 +29,8 @@ object SecdsaPinSession {
     }
 
     fun get(accountId: String): String? = pinsByAccountId[accountId]
+
+    /** True when a PIN was unlocked for this account in the current process. */
+    fun isUnlocked(accountId: String): Boolean =
+        accountId.isNotBlank() && pinsByAccountId.containsKey(accountId)
 }
