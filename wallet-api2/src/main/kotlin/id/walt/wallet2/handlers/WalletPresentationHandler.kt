@@ -915,9 +915,16 @@ object WalletPresentationHandler {
         requestedKeyId: String?,
         matched: Map<String, List<DcqlMatcher.DcqlMatchResult>>,
     ): Key {
+        // Prefer explicit keyId when present in this wallet. Do not call resolveKey(keyId=…)
+        // here — that throws IllegalStateException and skips credential/JWK fallbacks.
+        // Common after SoftHSM restart: phone sends a stale cnf kid while this wallet only
+        // has the newly generated secdsa: key (or the key lives on a different wallet).
         if (!requestedKeyId.isNullOrBlank()) {
-            return wallet.resolveKey(keyId = requestedKeyId)
-                ?: error("No key available: wallet has no keyStores, no staticKey, and no keyId was specified")
+            wallet.findKey(requestedKeyId)?.let { return it }
+            log.warn {
+                "Requested presentation keyId '$requestedKeyId' not in wallet '${wallet.id}'; " +
+                    "trying credential-bound / JWK match"
+            }
         }
 
         val matchedCredentials = matchedDigitalCredentials(matched)
@@ -976,6 +983,7 @@ object WalletPresentationHandler {
         }
 
         val missingKids = buildList {
+            if (!requestedKeyId.isNullOrBlank()) add(requestedKeyId)
             for (holderPub in holderKeys) {
                 try {
                     add(holderPub.getKeyId())
@@ -986,11 +994,15 @@ object WalletPresentationHandler {
             for (digital in matchedCredentials) {
                 keyIdFromDidJwk(digital.subject)?.let { add(it) }
             }
-        }
+        }.distinct()
         if (missingKids.isNotEmpty()) {
-            log.warn {
-                "Credential holder/subject kid(s) $missingKids not found in wallet key stores; falling back to default key"
-            }
+            val known = wallet.listAllKeys().map { it.keyId }
+            error(
+                "Holder key ${missingKids.joinToString()} not found in wallet '${wallet.id}' " +
+                    "(wallet has: ${known.ifEmpty { listOf("<none>") }}). " +
+                    "After a SoftHSM restart: generate the SECDSA key on this same wallet, " +
+                    "recreate did:jwk, delete credentials bound to the old key, and re-receive."
+            )
         }
 
         return wallet.resolveKey(keyId = null)
