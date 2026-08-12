@@ -1,5 +1,9 @@
 import {createError, defineEventHandler, getCookie, getHeader, getRouterParam, readBody} from "h3";
 import {useRuntimeConfig} from "#imports";
+import {
+    decideWalletApi2UnlockSync,
+    resolveWalletApi2UnlockAuthorization,
+} from "../../../../../../utils/secdsaUnlockAuth.mjs";
 
 /**
  * POST /wallet-api/wallet/:walletId/keys/secdsa/unlock
@@ -68,23 +72,14 @@ async function syncWalletApi2Unlock(
     const targetBase = String(
         config.walletApi2Proxy || process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
     ).replace(/\/$/, "");
-    const headers: Record<string, string> = {"Content-Type": "application/json"};
 
-    const inboundAuth =
-        getHeader(event, "authorization") ||
-        getHeader(event, "ktor-authnz-auth");
-    if (inboundAuth) {
-        headers.Authorization = inboundAuth.startsWith("Bearer ")
-            ? inboundAuth
-            : `Bearer ${inboundAuth}`;
-    } else {
-        const cookieToken = getCookie(event, "auth.token");
-        if (cookieToken) {
-            headers.Authorization = `Bearer ${cookieToken}`;
-        }
-    }
-
-    if (!headers.Authorization) {
+    const authorization = resolveWalletApi2UnlockAuthorization({
+        authorizationHeader: getHeader(event, "authorization"),
+        ktorAuthnzHeader: getHeader(event, "ktor-authnz-auth"),
+        cookieToken: getCookie(event, "auth.token"),
+    });
+    const decision = decideWalletApi2UnlockSync(authorization);
+    if (!decision.attempt || !decision.authorization) {
         console.warn(
             "[secdsa/unlock] No session token — SoftHSM-only (mobile should unlock wallet-api2 directly)",
         );
@@ -94,7 +89,10 @@ async function syncWalletApi2Unlock(
     try {
         const res = await fetch(`${targetBase}/wallet/${encodeURIComponent(walletId)}/keys/secdsa/unlock`, {
             method: "POST",
-            headers,
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: decision.authorization,
+            },
             body: JSON.stringify({accountId, pin}),
         });
         if (!res.ok) {

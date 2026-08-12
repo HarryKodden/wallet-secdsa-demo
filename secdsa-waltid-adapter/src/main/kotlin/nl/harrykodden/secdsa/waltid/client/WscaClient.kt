@@ -244,7 +244,19 @@ class WscaClient(
             "/api/instruct",
             """{"pin":${jsonStr(pin)},"op":"SIGN","data":${jsonStr(dataField)}}""",
         )
-        if (raw.contains("\"error\"")) error("SIGN failed: ${shortError(raw)}")
+        if (raw.contains("\"error\"")) {
+            val err = shortError(raw)
+            if (err.contains("no user key", ignoreCase = true) || err.contains("GENKEY first", ignoreCase = true)) {
+                error(
+                    "SIGN failed: SoftHSM has no user key for account '${config.accountId}'. " +
+                        "The lab SECDSA container uses in-memory keys — a restart wipes them while " +
+                        "wallet-api2 still holds the old secdsa: key metadata. " +
+                        "Regenerate the SECDSA key (Settings → Keys), recreate did:jwk, then re-receive " +
+                        "the credential (old VCs are bound to the wiped key).",
+                )
+            }
+            error("SIGN failed: $err")
+        }
         val sn = extractWalletSn(raw)
             ?: error("SIGN: missing walletSN in lab snapshot")
         val hex = fetchJudgeResultHex(sn)

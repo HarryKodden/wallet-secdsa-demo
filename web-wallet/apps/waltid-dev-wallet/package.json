@@ -5,7 +5,8 @@
     "dev": "nuxi dev",
     "build": "nuxi build",
     "generate": "nuxi generate",
-    "start": "node .output/server/index.mjs"
+    "start": "node .output/server/index.mjs",
+    "test:unlock-auth": "node --test src/server/utils/secdsaUnlockAuth.test.mjs"
   },
   "dependencies": {
     "@github/webauthn-json": "^2.1.1",

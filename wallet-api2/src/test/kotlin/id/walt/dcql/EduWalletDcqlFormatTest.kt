@@ -7,6 +7,7 @@ import id.walt.dcql.models.meta.JwtVcJsonMeta
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class EduWalletDcqlFormatTest {
 
@@ -17,6 +18,14 @@ class EduWalletDcqlFormatTest {
         assertEquals(
             CredentialFormat.DC_SD_JWT,
             json.decodeFromString(CredentialFormat.serializer(), "\"vc+sd-jwt\""),
+        )
+    }
+
+    @Test
+    fun `deserializes draft dc+sd-jwt DCQL format`() {
+        assertEquals(
+            CredentialFormat.DC_SD_JWT,
+            json.decodeFromString(CredentialFormat.serializer(), "\"dc+sd-jwt\""),
         )
     }
 
@@ -34,5 +43,20 @@ class EduWalletDcqlFormatTest {
             ),
         )
         assertEquals(CredentialFormat.DC_SD_JWT, query.credentials.first().format)
+    }
+
+    @Test
+    fun `rejects jwt_vc_json format with SdJwtVc-only style mismatch via require in CredentialQuery`() {
+        // DC_SD_JWT + JwtVcJsonMeta is the eduWallet legacy pairing and must be allowed.
+        // JWT_VC_JSON + wrong meta shape is still validated by CredentialQuery init.
+        assertFailsWith<IllegalArgumentException> {
+            CredentialQuery(
+                id = "bad",
+                format = CredentialFormat.JWT_VC_JSON,
+                meta = id.walt.dcql.models.meta.SdJwtVcMeta(
+                    vctValues = listOf("https://example.com/vct"),
+                ),
+            )
+        }
     }
 }
