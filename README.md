@@ -4,8 +4,6 @@
 [![GitHub release](https://img.shields.io/github/v/release/HarryKodden/wallet-secdsa-demo?label=release)](https://github.com/HarryKodden/wallet-secdsa-demo/releases/latest)
 [![GHCR web-wallet](https://img.shields.io/badge/ghcr.io-web--wallet-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fweb-wallet)
 [![GHCR wallet-api2](https://img.shields.io/badge/ghcr.io-wallet--api2-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fwallet-api2)
-[![GHCR issuer-api2](https://img.shields.io/badge/ghcr.io-issuer--api2-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fissuer-api2)
-[![GHCR verifier-api2](https://img.shields.io/badge/ghcr.io-verifier--api2-blue?logo=docker)](https://github.com/HarryKodden/wallet-secdsa-demo/pkgs/container/wallet-secdsa-demo%2Fverifier-api2)
 
 Self-contained Docker Compose demo:
 
@@ -16,14 +14,14 @@ Self-contained Docker Compose demo:
 - **Postgres** persistence for wallets, keys, credentials, events
 
 > **Educational / PoC only — not production-ready.**
-> Built on [walt.id](https://walt.id) open-source identity components
+> Built on [walt.id](https://walt.id) open-source libraries
 > ([waltid-identity](https://github.com/walt-id/waltid-identity), Apache-2.0)
-> via the private SECDSA mirror
-> ([HarryKodden/waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa))
-> plus the patent-encumbered [SECDSA](https://github.com/HarryKodden/SECDSA)
-> lab — see [USAGE.md](https://github.com/HarryKodden/SECDSA/blob/main/USAGE.md)
+> published to Maven (`maven.waltid.dev`) plus the patent-encumbered
+> [SECDSA](https://github.com/HarryKodden/SECDSA) lab — see
+> [USAGE.md](https://github.com/HarryKodden/SECDSA/blob/main/USAGE.md)
 > and [NOTICE](NOTICE). This repo’s glue is Apache-2.0 ([LICENSE](LICENSE)),
-> subject to third-party terms in NOTICE.
+> subject to third-party terms in NOTICE. No waltid-identity fork is required
+> to build or run the stack.
 
 ### Security posture (read before publishing or exposing ports)
 
@@ -36,7 +34,7 @@ Self-contained Docker Compose demo:
 | Auth accounts (email/password) | File volume `wallet-api2-accounts` (`WALLET2_ACCOUNT_STORE_PATH`) |
 | SECDSA keys | Memory WSCD in `secdsa` — **not** durable across secdsa restart |
 | Secrets | Copy [`.env.example`](.env.example) → `.env`; never commit `.env` |
-| Binary build | `*/api2/dist/` is **not** in git — build with `./scripts/build-api2.sh` (wallet locally; CI builds all three) |
+| Binary build | `wallet-api2/dist/` is **not** in git — build with `./scripts/build-api2.sh` (JDK 21+; CI builds wallet-api2 only) |
 
 Keep published ports on localhost. Rotate demo keys before any non-local use.
 Avoid `docker compose down -v` unless you intend to wipe Postgres and accounts.
@@ -44,16 +42,17 @@ After restarting only `secdsa`, regenerate keys/DIDs (lab WSCD is in-memory).
 
 ## Quick start
 
-> If `~/Projects/waltid-identity/docker-compose` is already running, either stop it
+> If a **separate** upstream [walt.id docker-compose](https://github.com/walt-id/waltid-identity/tree/main/docker-compose) stack is already running on this machine, either stop it
 > (`docker compose down` there) **or** change the `*_HOST_PORT` values in `.env`
 > (e.g. `WEB_WALLET_HOST_PORT=8115`, `WALLET_API2_HOST_PORT=8006`, `SECDSA_HOST_PORT=28080`).
+> This demo does **not** require cloning waltid-identity.
 
 ```bash
 cd ~/Projects/wallet-secdsa-demo
 
 cp .env.example .env   # fill OIDC_* if you use login
 
-# Required once (needs sibling repos — see below)
+# Required once (standalone build — no sibling repos)
 ./scripts/build-wallet-api2.sh
 
 ./scripts/up.sh
@@ -238,16 +237,20 @@ wallet-secdsa-demo/
 ├── Caddyfile               # publishes API + wallet ports
 ├── .env.example            # template — copy to .env
 ├── LICENSE / NOTICE
+├── docs/
+│   └── http-contract.md        # frozen holder HTTP surface (Ch F Phase 0)
 ├── scripts/
-│   ├── build-api2.sh           # wallet / issuer / verifier installDist
+│   ├── build-api2.sh           # standalone wallet-api2 installDist (Maven + adapter)
 │   ├── build-wallet-api2.sh    # wrapper → wallet only
-│   ├── build-issuer-api2.sh
-│   ├── build-verifier-api2.sh
+│   ├── build-issuer-api2.sh    # no-op (stock Hub image)
+│   ├── build-verifier-api2.sh  # no-op (stock Hub image)
+│   ├── smoke-holder-contract.sh
 │   ├── create-release.sh       # tag + GitHub release → GHCR :<tag>
 │   └── up.sh
-├── wallet-api2/            # Dockerfile + config; dist/ built locally
-├── issuer-api2/            # Dockerfile + config; dist/ from CI / build-api2
-├── verifier-api2/          # Dockerfile + config; dist/ from CI / build-api2
+├── secdsa-waltid-adapter/  # vendored SECDSA Key backend (Ch F Phase 1)
+├── wallet-api2/            # standalone Gradle + Dockerfile; dist/ built locally
+├── issuer-api2/            # Lab config bind-mount for stock waltid/issuer-api2
+├── verifier-api2/          # Lab config bind-mount for stock waltid/verifier-api2
 └── web-wallet/             # Nuxt SECDSA PIN wallet → wallet-api2
 ```
 
@@ -267,38 +270,19 @@ Browser :7115
 
 ## Building api2 images
 
-Stock `waltid/wallet-api2` images do **not** include the SECDSA backend. Locally
-this demo builds `wallet-api2` from `wallet-api2/dist` (gitignored).
+Stock `waltid/wallet-api2` images do **not** include the SECDSA backend. This demo
+builds `wallet-api2` from a **standalone Gradle project** under `wallet-api2/`
+(Maven walt.id 0.23.1 + `./secdsa-waltid-adapter` — **no waltid-identity fork**).
 
-Issuer/verifier can stay on Docker Hub (`waltid/*:stable`) for a quick lab start,
-or use the same `installDist` + Dockerfile path (and GHCR images from CI).
-
-`./scripts/build-api2.sh` expects:
-
-| Env | Default |
-|-----|---------|
-| `WALTID_IDENTITY_PATH` | `~/Projects/waltid-identity` (use the private [waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa) checkout) |
-| `SECDSA_ADAPTER_PATH` | `~/Projects/secdsa-waltid-adapter` |
-| `JAVA_HOME` | Homebrew OpenJDK if present |
-
-CI builds **wallet-api2**, **issuer-api2**, and **verifier-api2** from the private deps
-([waltid-identity-secdsa](https://github.com/HarryKodden/waltid-identity-secdsa),
-[secdsa-waltid-adapter](https://github.com/HarryKodden/secdsa-waltid-adapter)).
-Add repository secret `DEPENDENCY_TOKEN` — a fine-grained PAT with **Contents: Read**
-on both private repos (`GITHUB_TOKEN` cannot clone sibling private repositories).
-
-Optional branch overrides (repository variables): `WALTID_IDENTITY_REF`, `SECDSA_ADAPTER_REF`
-(default `main`).
+Issuer/verifier use stock Docker Hub images (`waltid/*:stable`).
 
 ```bash
 ./scripts/build-wallet-api2.sh          # or: ./scripts/build-api2.sh wallet
 docker compose build wallet-api2
-
-# Optional local issuer/verifier (same fork as CI):
-./scripts/build-api2.sh issuer verifier
-docker build -t wallet-secdsa-demo/issuer-api2:local ./issuer-api2
-docker build -t wallet-secdsa-demo/verifier-api2:local ./verifier-api2
 ```
+
+Frozen holder HTTP surface + smoke: [docs/http-contract.md](docs/http-contract.md),
+`./scripts/smoke-holder-contract.sh`.
 
 ## Releases & GHCR images
 
@@ -309,8 +293,8 @@ On a version tag (`v*`) the same images are also tagged with the release (e.g. `
 |-------|------|
 | Web wallet | `ghcr.io/harrykodden/wallet-secdsa-demo/web-wallet:<tag>` |
 | wallet-api2 (SECDSA) | `ghcr.io/harrykodden/wallet-secdsa-demo/wallet-api2:<tag>` |
-| issuer-api2 | `ghcr.io/harrykodden/wallet-secdsa-demo/issuer-api2:<tag>` |
-| verifier-api2 | `ghcr.io/harrykodden/wallet-secdsa-demo/verifier-api2:<tag>` |
+| issuer-api2 | `waltid/issuer-api2:stable` (Docker Hub) |
+| verifier-api2 | `waltid/verifier-api2:stable` (Docker Hub) |
 
 ### Public deploy (external reverse proxy)
 

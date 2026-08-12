@@ -1,5 +1,9 @@
-import {createError, defineEventHandler, readBody} from "h3";
+import {createError, defineEventHandler, getCookie, getHeader, getRouterParam, readBody} from "h3";
 import {useRuntimeConfig} from "#imports";
+import {
+    decideWalletApi2UnlockSync,
+    resolveWalletApi2UnlockAuthorization,
+} from "../../../../../../utils/secdsaUnlockAuth.mjs";
 
 /**
  * POST /wallet-api/wallet/:walletId/keys/secdsa/unlock
@@ -9,6 +13,12 @@ import {useRuntimeConfig} from "#imports";
  *   2. POST /api/wallets/select — select account; read `activated`
  *   3a. Not activated → POST /api/activate {pin}  (Protocol 4 — locks PIN to account)
  *   3b. Already activated → POST /api/instruct {pin, op:ECHO} to verify PIN
+ *   4. Best-effort sync to wallet-api2 SecdsaPinSession (when a session token is present)
+ *
+ * Auth model:
+ *   - Web SPA: auth.token cookie → Nitro syncs wallet-api2 in step 4
+ *   - Paired mobile: SoftHSM-only here (often no cookie); phone then POSTs
+ *     wallet-api2 `/keys/secdsa/unlock` with the pairing Bearer JWT itself
  *
  * SoftHSM quirk: /api/activate on an already-activated account returns
  * "already activated" for ANY pin (including wrong ones). Never treat that as
@@ -47,6 +57,58 @@ function isBlocked(msg: string, data: SecdsaState): boolean {
     return /block/i.test(msg) || data.wsca?.blocked === true;
 }
 
+/**
+ * Push PIN into wallet-api2 process memory when we have a session token.
+ * Never fails the SoftHSM unlock — mobile fills SecdsaPinSession via a direct
+ * wallet-api2 call with its pairing JWT when this returns false.
+ */
+async function syncWalletApi2Unlock(
+    event: Parameters<typeof defineEventHandler>[0] extends (e: infer E) => unknown ? E : never,
+    walletId: string,
+    accountId: string,
+    pin: string,
+): Promise<boolean> {
+    const config = useRuntimeConfig(event);
+    const targetBase = String(
+        config.walletApi2Proxy || process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
+    ).replace(/\/$/, "");
+
+    const authorization = resolveWalletApi2UnlockAuthorization({
+        authorizationHeader: getHeader(event, "authorization"),
+        ktorAuthnzHeader: getHeader(event, "ktor-authnz-auth"),
+        cookieToken: getCookie(event, "auth.token"),
+    });
+    const decision = decideWalletApi2UnlockSync(authorization);
+    if (!decision.attempt || !decision.authorization) {
+        console.warn(
+            "[secdsa/unlock] No session token — SoftHSM-only (mobile should unlock wallet-api2 directly)",
+        );
+        return false;
+    }
+
+    try {
+        const res = await fetch(`${targetBase}/wallet/${encodeURIComponent(walletId)}/keys/secdsa/unlock`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: decision.authorization,
+            },
+            body: JSON.stringify({accountId, pin}),
+        });
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            console.warn(
+                `[secdsa/unlock] wallet-api2 sync failed (${res.status}): ${text.slice(0, 200)}`,
+            );
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.warn("[secdsa/unlock] wallet-api2 sync error:", e);
+        return false;
+    }
+}
+
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event);
     const wscaBaseUrl: string =
@@ -69,6 +131,16 @@ export default defineEventHandler(async (event) => {
     if (!/^\d{4,}$/.test(pin)) {
         throw createError({statusCode: 400, statusMessage: "PIN must be numeric digits (min 4)"});
     }
+
+    const walletId = getRouterParam(event, "walletId");
+    if (!walletId) {
+        throw createError({statusCode: 400, statusMessage: "walletId is required"});
+    }
+
+    const completeUnlock = async (modeLabel: "setup" | "unlock") => {
+        const walletApi2Synced = await syncWalletApi2Unlock(event, walletId, accountId, pin);
+        return {ok: true, wsca: "activated", mode: modeLabel, walletApi2Synced};
+    };
 
     try {
         // Step 1: ensure account exists
@@ -102,7 +174,7 @@ export default defineEventHandler(async (event) => {
             const msg = errText(activate.data);
 
             if (activate.ok && !msg) {
-                return {ok: true, wsca: "activated", mode: "setup"};
+                return completeUnlock("setup");
             }
             // Race: another client activated between select and activate
             if (/already.?activ/i.test(msg)) {
@@ -129,7 +201,7 @@ export default defineEventHandler(async (event) => {
         const vMsg = errText(verify.data);
 
         if (verify.ok && !vMsg) {
-            return {ok: true, wsca: "activated", mode: "unlock"};
+            return completeUnlock("unlock");
         }
         if (isBlocked(vMsg, verify.data)) {
             throw createError({statusCode: 401, statusMessage: vMsg || "SoftHSM wallet blocked"});

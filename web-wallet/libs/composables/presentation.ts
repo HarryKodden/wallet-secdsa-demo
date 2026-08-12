@@ -312,14 +312,24 @@ export async function usePresentation(query: any) {
 
       const doc = typeof credential.document === "string" ? credential.document : "";
       // Prefer SD-JWT cnf; fall back to W3C subject did:jwk (jwt_vc_json has cnf: null).
+      // eduWallet uses cnf.kid = did:jwk:… (secdsa kid inside the JWK); some issuers use cnf.jwk.kid.
       if (doc.includes(".")) {
         const jwt = doc.split("~")[0];
         const payload = parseJwt(jwt) as Record<string, any>;
-        const cnfKid = payload?.cnf?.jwk?.kid;
-        if (typeof cnfKid === "string" && cnfKid) {
+        const cnfJwkKid =
+          typeof payload?.cnf?.jwk?.kid === "string" ? payload.cnf.jwk.kid : null;
+        const cnfKidRef =
+          typeof payload?.cnf?.kid === "string" ? payload.cnf.kid : null;
+        let fromCnf: string | null = null;
+        if (cnfJwkKid?.startsWith("secdsa:")) fromCnf = cnfJwkKid;
+        else if (cnfKidRef?.startsWith("secdsa:")) fromCnf = cnfKidRef;
+        else if (cnfKidRef?.startsWith("did:jwk:")) fromCnf = kidFromDidJwk(cnfKidRef);
+        else if (cnfJwkKid) fromCnf = cnfJwkKid;
+        if (fromCnf) {
           return {
-            keyId: cnfKid,
+            keyId: fromCnf,
             did:
+              (cnfKidRef?.startsWith("did:jwk:") && cnfKidRef) ||
               (typeof payload?.sub === "string" && payload.sub) ||
               subjectFromParsed ||
               null,
@@ -428,13 +438,11 @@ export async function usePresentation(query: any) {
       }
 
       // Success with no redirect — normal for lab / cross-device verifiers.
-      await navigateTo(
-        {
-          path: `/wallet/${currentWallet.value}`,
-          query: {presented: "1"},
-        },
-        {external: true},
-      );
+      // Keep SPA navigation so the in-memory SoftHSM PIN cache survives.
+      await navigateTo({
+        path: `/wallet/${currentWallet.value}`,
+        query: {presented: "1"},
+      });
     } catch (e: any) {
       failed.value = true;
       const msg =

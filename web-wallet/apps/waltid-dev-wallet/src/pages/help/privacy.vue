@@ -51,8 +51,11 @@
               </tr>
               <tr>
                 <td class="px-3 py-2">SoftHSM PIN (session)</td>
-                <td class="px-3 py-2">wallet-api2 process memory</td>
-                <td class="px-3 py-2">Not written to the browser or config files</td>
+                <td class="px-3 py-2">wallet-api2 process memory (+ browser Pinia while the tab lives)</td>
+                <td class="px-3 py-2">
+                  Not written to disk. Survives SPA navigations; cleared when wallet-api2 restarts.
+                  PRF-encrypted copy may be stored for silent restore after passkey login.
+                </td>
               </tr>
               <tr>
                 <td class="px-3 py-2">Login session</td>

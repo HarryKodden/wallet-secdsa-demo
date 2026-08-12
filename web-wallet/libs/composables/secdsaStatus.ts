@@ -15,6 +15,8 @@ export type SecdsaStatusResponse = {
     accountId: string;
     activated?: boolean;
     hasUserKey?: boolean;
+    /** wallet-api2 process already holds SoftHSM PIN for this account. */
+    pinSessionActive?: boolean;
     backend?: string | null;
     wscaPublicKeyHex?: string | null;
     keys?: SecdsaKeyValidity[];

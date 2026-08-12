@@ -1,0 +1,37 @@
+# Educational stack: SECDSA lab (trust layer) + walt.id adapter demo.
+# Not for production. SECDSA is patent-encumbered — see USAGE.md / NOTICE in the lab image.
+#
+# Prerequisites: sibling clone of HarryKodden/SECDSA (default ../wsca), or set SECDSA_PATH.
+#
+#   docker compose up --build lab          # UI http://localhost:8080
+#   docker compose --profile demo run --rm --build adapter
+#
+# walt.id Wallet / portal is a *separate* compose (waltid-identity). See docs/WALTID_WALLET_API.md.
+name: secdsa-waltid
+
+services:
+  lab:
+    build:
+      context: ${SECDSA_PATH:-../wsca}
+      dockerfile: Dockerfile
+    image: secdsa-lab:local
+    ports:
+      - "${WSCA_PORT:-8080}:8080"
+    environment:
+      ADDR: ":8080"
+
+  adapter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: secdsa-waltid-adapter:local
+    depends_on:
+      - lab
+    environment:
+      WSCA_BASE_URL: http://lab:8080
+      WSCA_ACCOUNT_ID: ${WSCA_ACCOUNT_ID:-citizen-42}
+      WSCA_PIN: ${WSCA_PIN:-424242}
+      WSCA_WAIT_SECONDS: "60"
+    # one-shot demo CLI (PIN from env; argv also accepted)
+    profiles: ["demo"]
+    restart: "no"

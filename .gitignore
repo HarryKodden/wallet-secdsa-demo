@@ -1,5 +1,7 @@
 # Build artefacts (produce with ./scripts/build-api2.sh)
 wallet-api2/dist/
+wallet-api2/build/
+wallet-api2/.gradle/
 issuer-api2/dist/
 verifier-api2/dist/
 web-wallet/node_modules/
@@ -17,4 +19,3 @@ web-wallet/apps/*/dist/
 
 # Local working notes (not for the public repo)
 TODO.md
-
