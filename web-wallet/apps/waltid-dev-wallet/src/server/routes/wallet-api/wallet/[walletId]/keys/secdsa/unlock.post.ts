@@ -1,4 +1,4 @@
-import {createError, defineEventHandler, readBody} from "h3";
+import {createError, defineEventHandler, getCookie, getRouterParam, readBody} from "h3";
 import {useRuntimeConfig} from "#imports";
 
 /**
@@ -9,6 +9,7 @@ import {useRuntimeConfig} from "#imports";
  *   2. POST /api/wallets/select — select account; read `activated`
  *   3a. Not activated → POST /api/activate {pin}  (Protocol 4 — locks PIN to account)
  *   3b. Already activated → POST /api/instruct {pin, op:ECHO} to verify PIN
+ *   4. Forward unlock to wallet-api2 (SecdsaPinSession — required for SIGN / JWT proofs)
  *
  * SoftHSM quirk: /api/activate on an already-activated account returns
  * "already activated" for ANY pin (including wrong ones). Never treat that as
@@ -47,6 +48,37 @@ function isBlocked(msg: string, data: SecdsaState): boolean {
     return /block/i.test(msg) || data.wsca?.blocked === true;
 }
 
+async function syncWalletApi2Unlock(
+    event: Parameters<typeof defineEventHandler>[0] extends (e: infer E) => unknown ? E : never,
+    walletId: string,
+    accountId: string,
+    pin: string,
+): Promise<void> {
+    const config = useRuntimeConfig(event);
+    const targetBase = String(
+        config.walletApi2Proxy || process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
+    ).replace(/\/$/, "");
+    const headers: Record<string, string> = {"Content-Type": "application/json"};
+    const cookieToken = getCookie(event, "auth.token");
+    if (cookieToken) {
+        headers.Authorization = `Bearer ${cookieToken}`;
+    }
+    const res = await fetch(`${targetBase}/wallet/${encodeURIComponent(walletId)}/keys/secdsa/unlock`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({accountId, pin}),
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw createError({
+            statusCode: res.status === 401 ? 401 : 502,
+            statusMessage:
+                text.trim() ||
+                "wallet-api2 SECDSA unlock failed — proof signing will not work until unlock succeeds",
+        });
+    }
+}
+
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig(event);
     const wscaBaseUrl: string =
@@ -69,6 +101,16 @@ export default defineEventHandler(async (event) => {
     if (!/^\d{4,}$/.test(pin)) {
         throw createError({statusCode: 400, statusMessage: "PIN must be numeric digits (min 4)"});
     }
+
+    const walletId = getRouterParam(event, "walletId");
+    if (!walletId) {
+        throw createError({statusCode: 400, statusMessage: "walletId is required"});
+    }
+
+    const completeUnlock = async (modeLabel: "setup" | "unlock") => {
+        await syncWalletApi2Unlock(event, walletId, accountId, pin);
+        return {ok: true, wsca: "activated", mode: modeLabel};
+    };
 
     try {
         // Step 1: ensure account exists
@@ -102,7 +144,7 @@ export default defineEventHandler(async (event) => {
             const msg = errText(activate.data);
 
             if (activate.ok && !msg) {
-                return {ok: true, wsca: "activated", mode: "setup"};
+                return completeUnlock("setup");
             }
             // Race: another client activated between select and activate
             if (/already.?activ/i.test(msg)) {
@@ -129,7 +171,7 @@ export default defineEventHandler(async (event) => {
         const vMsg = errText(verify.data);
 
         if (verify.ok && !vMsg) {
-            return {ok: true, wsca: "activated", mode: "unlock"};
+            return completeUnlock("unlock");
         }
         if (isBlocked(vMsg, verify.data)) {
             throw createError({statusCode: 401, statusMessage: vMsg || "SoftHSM wallet blocked"});

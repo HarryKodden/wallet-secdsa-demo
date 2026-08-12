@@ -1,0 +1,44 @@
+package id.walt.openid4vci
+
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
+
+/**
+ * OpenID4VCI 1.0 Credential Format identifiers.
+ *
+ * Note: [id.walt.dcql.models.CredentialFormat] in `waltid-dcql` is the canonical
+ * format enum used by the verifier and wallet stacks. This enum exists for the
+ * Issuer2 (`waltid-openid4vci`) library which predates that consolidation.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+enum class CredentialFormat(val value: String) {
+    @SerialName("jwt_vc_json")
+    JWT_VC_JSON("jwt_vc_json"),
+    @SerialName("jwt_vc_json-ld")
+    JWT_VC_JSON_LD("jwt_vc_json-ld"),
+    @SerialName("ldp_vc")
+    LDP_VC("ldp_vc"),
+    @SerialName("jwt_vc")
+    JWT_VC("jwt_vc"),
+    /**
+     * IETF SD-JWT VC. Spec Draft 28+ uses `dc+sd-jwt`; older issuers (e.g. eduWallet
+     * sandbox `*_JWT` profiles) still advertise the legacy `vc+sd-jwt` identifier.
+     */
+    @SerialName("dc+sd-jwt")
+    @JsonNames("vc+sd-jwt")
+    SD_JWT_VC("dc+sd-jwt"),
+    @SerialName("mso_mdoc")
+    MSO_MDOC("mso_mdoc");
+
+    companion object {
+        fun fromValue(value: String): CredentialFormat? {
+            return when (value) {
+                "vc+sd-jwt" -> SD_JWT_VC
+                else -> entries.find { it.value == value }
+            }
+        }
+    }
+}

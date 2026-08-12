@@ -21,6 +21,16 @@ dependencies {
     // Stock walt.id wallet-api2 libraries (no waltid-identity checkout)
     implementation("id.walt.protocols:waltid-openid4vc-wallet-server:$waltidVersion")
     implementation("id.walt.protocols:waltid-openid4vc-wallet-persistence-server:$waltidVersion")
+    // Compile classpath for eduWallet overlay sources (runtime also via wallet-server)
+    implementation("id.walt.protocols:waltid-openid4vc-wallet-jvm:$waltidVersion")
+    implementation("id.walt.protocols:waltid-openid4vci-wallet-jvm:$waltidVersion")
+    implementation("id.walt.protocols:waltid-openid4vp-wallet-jvm:$waltidVersion")
+    implementation("id.walt.protocols:waltid-openid4vp-clientidprefix-jvm:$waltidVersion")
+    implementation("id.walt.protocols:waltid-openid4vp-jvm:$waltidVersion")
+    implementation("id.walt.dcql:waltid-dcql-jvm:$waltidVersion")
+    implementation("id.walt.credentials:waltid-digital-credentials-jvm:$waltidVersion")
+    implementation("org.kotlincrypto.hash:sha2-jvm:0.8.0")
+    implementation("dev.whyoleg.cryptography:cryptography-random-jvm:0.6.0")
     implementation("id.walt:waltid-service-commons:$waltidVersion")
     implementation("id.walt:waltid-ktor-authnz:$waltidVersion")
     implementation("id.walt.crypto:waltid-crypto-jvm:$waltidVersion")
@@ -55,6 +65,8 @@ dependencies {
 
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
     runtimeOnly("org.postgresql:postgresql:42.7.5")
+
+    testImplementation(kotlin("test"))
 }
 
 kotlin {
