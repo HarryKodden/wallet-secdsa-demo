@@ -72,12 +72,27 @@ data class CreateWalletRequest(
     val noDidStore: Boolean = false,
     /** Serialized static key, used when no key stores are attached. */
     val staticKey: JsonObject? = null,
-    val staticDid: String? = null
+    val staticDid: String? = null,
+    /** Optional friendly label shown in web / mobile wallet lists. */
+    val displayName: String? = null,
 )
 
 @Serializable
 data class WalletCreatedResponse(
-    val walletId: String
+    val walletId: String,
+    val displayName: String? = null,
+)
+
+@Serializable
+data class WalletListItem(
+    val walletId: String,
+    val displayName: String? = null,
+    val credentialCount: Int = 0,
+)
+
+@Serializable
+data class UpdateWalletRequest(
+    val displayName: String? = null,
 )
 
 @Serializable
@@ -93,6 +108,7 @@ data class WalletInfoResponse(
     val didStoreId: String? = null,
     val defaultKeyId: String? = null,
     val defaultDidId: String? = null,
+    val displayName: String? = null,
 )
 
 @Serializable
@@ -225,7 +241,8 @@ object Wallet2RouteHandler {
                 credentialStores = credentialStores,
                 didStore = didStore,
                 staticKey = staticKey,
-                staticDid = req.staticDid
+                staticDid = req.staticDid,
+                displayName = req.displayName?.trim()?.take(128)?.takeIf { it.isNotEmpty() },
             )
             resolver.storeWallet(wallet)
             // If auth is enabled, automatically link the new wallet to the requesting account
@@ -236,20 +253,34 @@ object Wallet2RouteHandler {
                 }
             }
             log.info { "Created wallet $id (keyStores=${keyStores.size}, credentialStores=${credentialStores.size}, didStore=${didStore != null})" }
-            call.respond(HttpStatusCode.Created, WalletCreatedResponse(walletId = id))
+            call.respond(
+                HttpStatusCode.Created,
+                WalletCreatedResponse(walletId = id, displayName = wallet.displayName),
+            )
         }
 
         get("", {
             tags = listOf(WALLET_MANAGEMENT_TAG)
-            summary = "List wallet IDs"
-            description = "When auth is enabled, returns only wallets owned by the authenticated account."
-            response { HttpStatusCode.OK to { body<List<String>>() } }
+            summary = "List wallets"
+            description =
+                "When auth is enabled, returns only wallets owned by the authenticated account. " +
+                    "Each item includes optional displayName and credentialCount."
+            response { HttpStatusCode.OK to { body<List<WalletListItem>>() } }
         }) {
             val ids: List<String> = getAccountId
                 ?.let { call.it() }
                 ?.let { resolver.getWalletIdsForAccount(it) }
                 ?: resolver.listWalletIds().toList()
-            call.respond(ids)
+            val items = ids.map { walletId ->
+                val wallet = resolver.resolveWallet(walletId)
+                val count = wallet?.streamAllCredentials()?.toList()?.size ?: 0
+                WalletListItem(
+                    walletId = walletId,
+                    displayName = wallet?.displayName,
+                    credentialCount = count,
+                )
+            }
+            call.respond(items)
         }
 
         route("/{walletId}") {
@@ -274,6 +305,7 @@ object Wallet2RouteHandler {
                                     hasStaticDid = false,
                                     defaultKeyId = "v_CW0xP256ExampleKeyId",
                                     defaultDidId = "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbhnRFvvWUpK",
+                                    displayName = "Personal",
                                 )
                             }
                         }
@@ -283,6 +315,37 @@ object Wallet2RouteHandler {
             }) {
                 val wallet = call.resolveOrRespond(resolver, getAccountId) ?: return@get
                 call.respond(wallet.toInfoResponse(resolver))
+            }
+
+            put("", {
+                tags = listOf(WALLET_MANAGEMENT_TAG)
+                summary = "Update wallet metadata"
+                description = "Set or clear the friendly displayName (empty string clears)."
+                request {
+                    pathParameter<String>("walletId")
+                    body<UpdateWalletRequest>()
+                }
+                response {
+                    HttpStatusCode.OK to { body<WalletInfoResponse>() }
+                    HttpStatusCode.NotFound to { description = "Wallet not found" }
+                }
+            }) {
+                val wallet = call.resolveOrRespond(resolver, getAccountId) ?: return@put
+                val req = call.receive<UpdateWalletRequest>()
+                resolver.setWalletDisplayName(wallet.id, req.displayName)
+                val updated = resolver.resolveWallet(wallet.id)
+                    ?: return@put call.respond(HttpStatusCode.NotFound, "Wallet '${wallet.id}' not found")
+                val expected = req.displayName?.trim()?.take(128)?.takeIf { it.isNotEmpty() }
+                if (updated.displayName != expected) {
+                    log.error {
+                        "displayName not persisted for ${wallet.id}: expected=$expected actual=${updated.displayName}"
+                    }
+                    return@put call.respond(
+                        HttpStatusCode.InternalServerError,
+                        "Failed to persist wallet displayName — is wallet2_wallets.display_name migrated?",
+                    )
+                }
+                call.respond(updated.toInfoResponse(resolver))
             }
 
             delete("", {
@@ -1247,6 +1310,7 @@ object Wallet2RouteHandler {
         hasStaticDid = staticDid != null,
         defaultKeyId = defaultKeyId,
         defaultDidId = defaultDidId,
+        displayName = displayName,
     )
 
     @OptIn(ExperimentalEncodingApi::class)

@@ -65,6 +65,8 @@ dependencies {
 
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
     runtimeOnly("org.postgresql:postgresql:42.7.5")
+    // Needed to compile Wallet2Tables overlay (timestamp columns)
+    implementation("org.jetbrains.exposed:exposed-java-time:1.3.0")
 
     testImplementation(kotlin("test"))
 }

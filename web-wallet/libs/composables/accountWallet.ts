@@ -2,52 +2,91 @@ import {navigateTo, useRoute, useState} from "nuxt/app";
 import {computed, type WritableComputedRef} from "vue";
 
 export type WalletListing = {
-    id: string,
-    name: string
-    createdOn: string
-    addedOn: string
-    permission: string
-}
+    id: string;
+    /** Friendly label from wallet-api2; falls back to a short id when unset. */
+    name: string;
+    /** Raw persisted displayName from wallet-api2 (null/undefined when unset). */
+    displayName?: string | null;
+    createdOn: string;
+    addedOn: string;
+    permission: string;
+    /** Number of credentials currently stored in this wallet. */
+    credentialCount: number;
+};
 
 export type WalletListings = {
-    account: string,
-    wallets: WalletListing[]
-}
+    account: string;
+    wallets: WalletListing[];
+};
 
-function toListing(id: string): WalletListing {
-    return {
-        id,
-        name: id.slice(0, 8) + "…",
-        createdOn: "",
-        addedOn: "",
-        permission: "owner",
-    };
-}
+type WalletListItem = {
+    walletId: string;
+    displayName?: string | null;
+    credentialCount?: number;
+};
 
 const LOCAL_WALLET_KEY = "wallet2.walletId";
 
-async function fetchWalletIds(): Promise<string[]> {
-    const ids = await $fetch<string[] | { walletIds?: string[] }>("/wallet-api/wallet");
-    return Array.isArray(ids) ? ids : (ids?.walletIds ?? []);
+function shortId(id: string): string {
+    return id.length > 8 ? `${id.slice(0, 8)}…` : id;
 }
 
-async function createWallet(): Promise<string> {
-    const created = await $fetch<{ walletId: string }>("/wallet-api/wallet", {
-        method: "POST",
-        body: {},
-    });
+function displayLabel(id: string, displayName?: string | null): string {
+    const trimmed = displayName?.trim();
+    return trimmed || shortId(id);
+}
+
+function toListing(item: WalletListItem): WalletListing {
+    const displayName = item.displayName?.trim() || null;
+    return {
+        id: item.walletId,
+        name: displayLabel(item.walletId, displayName),
+        displayName,
+        createdOn: "",
+        addedOn: "",
+        permission: "owner",
+        credentialCount: item.credentialCount ?? 0,
+    };
+}
+
+async function fetchWalletList(): Promise<WalletListItem[]> {
+    const raw = await $fetch<WalletListItem[] | string[] | {walletIds?: string[]}>(
+        "/wallet-api/wallet",
+    );
+    if (Array.isArray(raw)) {
+        if (raw.length === 0) return [];
+        if (typeof raw[0] === "string") {
+            return (raw as string[]).map((walletId) => ({walletId, credentialCount: 0}));
+        }
+        return raw as WalletListItem[];
+    }
+    return (raw?.walletIds ?? []).map((walletId) => ({walletId, credentialCount: 0}));
+}
+
+async function createWallet(displayName?: string): Promise<WalletListItem> {
+    const created = await $fetch<{walletId: string; displayName?: string | null}>(
+        "/wallet-api/wallet",
+        {
+            method: "POST",
+            body: displayName?.trim() ? {displayName: displayName.trim()} : {},
+        },
+    );
     if (!created?.walletId) {
         throw new Error("wallet-api2 did not return a walletId");
     }
     if (import.meta.client) {
         localStorage.setItem(LOCAL_WALLET_KEY, created.walletId);
     }
-    return created.walletId;
+    return {
+        walletId: created.walletId,
+        displayName: created.displayName ?? displayName ?? null,
+        credentialCount: 0,
+    };
 }
 
 /** Create a new empty wallet-api2 wallet and optionally navigate to it. */
 export async function createNewWallet(open = true): Promise<string> {
-    const walletId = await createWallet();
+    const created = await createWallet();
     const listings = useState<WalletListings>("wallet2.listings", () => ({
         account: "local",
         wallets: [],
@@ -55,17 +94,50 @@ export async function createNewWallet(open = true): Promise<string> {
     const existing = listings.value?.wallets ?? [];
     listings.value = {
         account: "local",
-        wallets: [toListing(walletId), ...existing.filter((w) => w.id !== walletId)],
+        wallets: [toListing(created), ...existing.filter((w) => w.id !== created.walletId)],
     };
     if (open) {
-        setWallet(walletId);
+        setWallet(created.walletId);
     }
-    return walletId;
+    return created.walletId;
 }
 
-async function credentialCount(walletId: string): Promise<number> {
-    const list = await $fetch<unknown[]>(`/wallet-api/wallet/${walletId}/credentials`);
-    return Array.isArray(list) ? list.length : 0;
+/**
+ * Persist a friendly display name on wallet-api2 (Postgres / descriptor).
+ */
+export async function renameWallet(walletId: string, displayName: string): Promise<void> {
+    const trimmed = displayName.trim().slice(0, 128);
+    const updated = await $fetch<{walletId: string; displayName?: string | null}>(
+        `/wallet-api/wallet/${encodeURIComponent(walletId)}`,
+        {
+            method: "PUT",
+            body: {displayName: trimmed},
+        },
+    );
+    const persisted = updated.displayName?.trim() || "";
+    if (persisted !== trimmed) {
+        throw new Error(
+            "Server did not save the wallet name. Rebuild/restart wallet-api2 so the display_name column exists.",
+        );
+    }
+
+    const listings = useState<WalletListings>("wallet2.listings", () => ({
+        account: "local",
+        wallets: [],
+    }));
+    const wallets = listings.value?.wallets ?? [];
+    listings.value = {
+        account: listings.value?.account ?? "local",
+        wallets: wallets.map((w) =>
+            w.id === walletId
+                ? {
+                      ...w,
+                      displayName: persisted,
+                      name: displayLabel(walletId, persisted),
+                  }
+                : w,
+        ),
+    };
 }
 
 /**
@@ -73,7 +145,17 @@ async function credentialCount(walletId: string): Promise<number> {
  * Non-empty wallets must have credentials removed first.
  */
 export async function deleteWallet(walletId: string): Promise<void> {
-    const count = await credentialCount(walletId);
+    const listings = useState<WalletListings>("wallet2.listings", () => ({
+        account: "local",
+        wallets: [],
+    }));
+    const known = listings.value?.wallets?.find((w) => w.id === walletId);
+    const count =
+        known?.credentialCount ??
+        (await $fetch<unknown[]>(`/wallet-api/wallet/${walletId}/credentials`)
+            .then((list) => (Array.isArray(list) ? list.length : 0))
+            .catch(() => 0));
+
     if (count > 0) {
         throw new Error(
             count === 1
@@ -86,10 +168,6 @@ export async function deleteWallet(walletId: string): Promise<void> {
         method: "DELETE",
     });
 
-    const listings = useState<WalletListings>("wallet2.listings", () => ({
-        account: "local",
-        wallets: [],
-    }));
     const remaining = (listings.value?.wallets ?? []).filter((w) => w.id !== walletId);
     listings.value = {
         account: listings.value?.account ?? "local",
@@ -119,67 +197,62 @@ export async function listWallets() {
         wallets: [],
     }));
 
-    let ids: string[] = [];
+    let items: WalletListItem[] = [];
     try {
-        ids = await fetchWalletIds();
+        items = await fetchWalletList();
     } catch (e) {
         console.warn("GET /wallet failed, will try create", e);
     }
 
-    let wallets = ids.map(toListing);
-
-    // Prefer a previously stored id only if it still exists on the backend
-    // (recreating wallet-api2 / wiping DB leaves stale localStorage / deep links).
     if (import.meta.client) {
         const stored = localStorage.getItem(LOCAL_WALLET_KEY);
-        if (stored && !wallets.some((w) => w.id === stored)) {
+        if (stored && !items.some((i) => i.walletId === stored)) {
             localStorage.removeItem(LOCAL_WALLET_KEY);
-        } else if (stored && wallets.some((w) => w.id === stored)) {
-            wallets = [
-                toListing(stored),
-                ...wallets.filter((w) => w.id !== stored),
-            ];
+        } else if (stored) {
+            const preferred = items.find((i) => i.walletId === stored);
+            if (preferred) {
+                items = [preferred, ...items.filter((i) => i.walletId !== stored)];
+            }
         }
     }
 
-    if (wallets.length === 0) {
+    if (items.length === 0) {
         try {
-            const walletId = await createWallet();
-            wallets = [toListing(walletId)];
+            items = [await createWallet()];
         } catch (e) {
             console.error("Failed to auto-create wallet-api2 wallet", e);
         }
     }
 
-    data.value = {account: "local", wallets};
+    data.value = {
+        account: "local",
+        wallets: items.map(toListing),
+    };
     return data;
 }
 
 /**
  * If the wallet id in the URL no longer exists (e.g. after API recreate),
  * switch to an existing wallet or create a new one and rewrite the path.
- *
- * Never create a replacement wallet while the list endpoint is merely failing —
- * that produced empty "new" wallets on refresh.
  */
 export async function ensureValidWallet(): Promise<string | null> {
     if (!import.meta.client) return useCurrentWallet().value;
 
     const current = useCurrentWallet().value;
-    let ids: string[];
+    let items: WalletListItem[];
     try {
-        ids = await fetchWalletIds();
+        items = await fetchWalletList();
     } catch (e) {
         console.warn("Could not list wallets", e);
         return current;
     }
 
+    const ids = items.map((i) => i.walletId);
     if (current && ids.includes(current)) {
         localStorage.setItem(LOCAL_WALLET_KEY, current);
         return current;
     }
 
-    // Stale deep link — recover to an existing wallet when possible
     if (current) {
         localStorage.removeItem(LOCAL_WALLET_KEY);
         console.warn(`Wallet ${current} not found on wallet-api2; recovering`);
@@ -187,9 +260,8 @@ export async function ensureValidWallet(): Promise<string | null> {
 
     let nextId = ids[0];
     if (!nextId) {
-        // Only create when the backend truly has zero wallets
         try {
-            nextId = await createWallet();
+            nextId = (await createWallet()).walletId;
         } catch (e) {
             console.error("Failed to create replacement wallet", e);
             return null;
@@ -197,36 +269,30 @@ export async function ensureValidWallet(): Promise<string | null> {
     }
 
     const route = useRoute();
-    const suffix = typeof route.fullPath === "string"
-        ? route.fullPath.replace(/^\/wallet\/[^/]+/, "")
-        : "";
+    const suffix =
+        typeof route.fullPath === "string"
+            ? route.fullPath.replace(/^\/wallet\/[^/]+/, "")
+            : "";
     setWallet(nextId, (id) => `/wallet/${id}${suffix || ""}`);
     return nextId;
 }
 
 export function setWallet(
     newWallet: string | null,
-    redirectUri: ((walletId: string) => string) | undefined = (walletId) => `/wallet/${walletId}`
+    redirectUri: ((walletId: string) => string) | undefined = (walletId) => `/wallet/${walletId}`,
 ) {
     useCurrentWallet().value = newWallet;
     if (import.meta.client && newWallet) {
         localStorage.setItem(LOCAL_WALLET_KEY, newWallet);
     }
 
-    if (newWallet != null && redirectUri != undefined)
-        navigateTo(redirectUri(newWallet));
+    if (newWallet != null && redirectUri != undefined) navigateTo(redirectUri(newWallet));
 }
 
-/**
- * Current wallet id — always prefer the `:wallet` route param so hard refresh
- * and in-app navigation stay aligned (useState alone only init'd once).
- */
 export function useCurrentWallet(): WritableComputedRef<string | null> {
     const route = useRoute();
     const stored = useState<string | null>("wallet", () => null);
 
-    // Full-page AS redirects (e.g. /oid4vci/callback) drop route `:wallet`;
-    // restore last selection from localStorage so PIN unlock / API calls work.
     if (import.meta.client && !stored.value) {
         const fromLs = localStorage.getItem(LOCAL_WALLET_KEY);
         if (fromLs) stored.value = fromLs;
@@ -247,5 +313,37 @@ export function useCurrentWallet(): WritableComputedRef<string | null> {
                 else localStorage.removeItem(LOCAL_WALLET_KEY);
             }
         },
+    });
+}
+
+/** Shared wallet list state (display names, credential counts). */
+export function useWalletListings() {
+    return useState<WalletListings>("wallet2.listings", () => ({
+        account: "local",
+        wallets: [],
+    }));
+}
+
+function walletIdFromRoute(route: ReturnType<typeof useRoute>): string | null {
+    const raw = route.params["wallet"];
+    if (typeof raw === "string" && raw.length > 0) return raw;
+    if (Array.isArray(raw) && typeof raw[0] === "string" && raw[0].length > 0) return raw[0];
+    return null;
+}
+
+/**
+ * Page header title for `/wallet/:wallet/...`:
+ * persisted displayName when set, otherwise the full wallet UUID.
+ * Null only outside wallet routes (picker keeps the greeting).
+ */
+export function useCurrentWalletDisplayName() {
+    const route = useRoute();
+    const listings = useWalletListings();
+    return computed(() => {
+        const id = walletIdFromRoute(route);
+        if (!id) return null;
+        const found = listings.value?.wallets?.find((w) => w.id === id);
+        const named = found?.displayName?.trim() || null;
+        return named || id;
     });
 }

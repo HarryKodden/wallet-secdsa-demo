@@ -6,7 +6,8 @@ This directory is a **standalone** wallet-api2 build. It does not clone
 | Piece | Origin |
 |-------|--------|
 | App (`Main`, auth, `SecdsaUnlockRoutes`, …) | Adapted from private SECDSA mirror of walt.id wallet-api2 |
-| `Wallet2RouteHandler` overlay | Fork patch: dynamic `KeyGenerationRequest` + demo routes; Phase 2 restricts generate to `backend=secdsa` |
+| `Wallet2RouteHandler` overlay | Fork patch: dynamic `KeyGenerationRequest` + demo routes; Phase 2 restricts generate to `backend=secdsa`; wallet `displayName` list/update |
+| `Wallet`, `WalletDescriptor`, `WalletResolver`, `ExposedWalletStore`, `Wallet2Tables` | Overlay: persist optional `displayName` on wallets |
 | `Wallet2OpenApiDocs` + `Wallet2RequestExamples` | Fork overlay: must match fork DTOs (stock 0.23.1 jar breaks at runtime) |
 | `Wallet2EventLog` | Fork patch (in-memory; stock 0.23.1 has no event log) |
 | `openid4vci` metadata overlays (`CredentialFormat`, `CredentialIssuerMetadata`, `CredentialConfiguration`, `SigningAlgId`, `AuthorizationServerMetadata`) | Fork overlay: eduWallet sandbox metadata uses legacy `vc+sd-jwt`, skips invalid `ldp_vc` entries, and token-only OAuth AS (no `authorization_endpoint`); stock Maven 0.23.1 fails issuer/AS metadata resolve |
