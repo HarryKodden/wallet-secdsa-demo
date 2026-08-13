@@ -10,6 +10,8 @@ import id.walt.openid4vci.errors.CredentialError
 import id.walt.wallet2.data.*
 import id.walt.wallet2.handlers.*
 import id.walt.verifier.openid.transactiondata.TransactionDataTypeRegistry
+import id.walt.wallet2.server.Oid4vcProtocolErrors
+import id.walt.wallet2.server.Oid4vcProtocolErrors.respondProtocolFailure
 import id.walt.wallet2.server.WalletResolver
 import id.walt.wallet2.server.events.Wallet2EventLog
 import id.walt.wallet2.server.events.Wallet2EventLogPage
@@ -37,6 +39,7 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -661,7 +664,28 @@ object Wallet2RouteHandler {
                             HttpStatusCode.BadRequest,
                             "No key available for DID creation — generate a key in this wallet first",
                         )
-                    val did = DidService.registerDefaultDidMethodByKey(req.method, key, req.options)
+                    if (req.method.equals("cheqd", ignoreCase = true)) {
+                        return@post call.respond(
+                            HttpStatusCode.BadRequest,
+                            "did:cheqd is not supported in this SoftHSM demo (requires Ed25519). " +
+                                "Use did:jwk or did:web with secp256r1.",
+                        )
+                    }
+                    val did = try {
+                        DidService.registerDefaultDidMethodByKey(req.method, key, req.options)
+                    } catch (e: Exception) {
+                        val msg = e.message.orEmpty()
+                        if (msg.contains("Ed25519", ignoreCase = true) ||
+                            msg.contains("key of type", ignoreCase = true)
+                        ) {
+                            return@post call.respond(
+                                HttpStatusCode.BadRequest,
+                                "DID method '${req.method}' is incompatible with key type ${key.keyType}: $msg. " +
+                                    "For this SoftHSM demo use did:jwk or did:web with secp256r1.",
+                            )
+                        }
+                        throw e
+                    }
                     val entry = WalletDidEntry(
                         did = did.did,
                         document = runCatching {
@@ -878,12 +902,9 @@ object Wallet2RouteHandler {
                             )
                             call.respond(result)
                         } catch (e: Exception) {
-                            // TokenRequestBuilder throws a plain Exception with this prefix when the
-                            // token endpoint returns 4xx (e.g. wrong PIN / tx_code). Reclassify as
-                            // IllegalArgumentException so the status pages handler maps it to 400.
-                            // TODO: Replace once TokenRequestBuilder throws a typed exception.
-                            if (e.message?.startsWith("Token request failed") == true) {
-                                throw IllegalArgumentException(e.message, e)
+                            if (Oid4vcProtocolErrors.isClientProtocolFailure(e)) {
+                                call.respondProtocolFailure(e)
+                                return@post
                             }
                             throw e
                         }
@@ -951,9 +972,12 @@ object Wallet2RouteHandler {
                         val req = call.receive<FetchCredentialRequest>()
                         try {
                             call.respond(WalletIssuanceHandler.fetchCredential(wallet, req))
-                        } catch (error: CredentialEndpointException) {
-                            if (!error.isInvalidNonce) throw error
-                            call.respond(HttpStatusCode.BadRequest, requireNotNull(error.credentialError))
+                        } catch (error: Exception) {
+                            if (Oid4vcProtocolErrors.isClientProtocolFailure(error)) {
+                                call.respondProtocolFailure(error)
+                                return@post
+                            }
+                            throw error
                         }
                     }
 
@@ -969,7 +993,15 @@ object Wallet2RouteHandler {
                         response { HttpStatusCode.OK to { body<GenerateAuthorizationUrlResult>() } }
                     }) {
                         val req = call.receive<GenerateAuthorizationUrlRequest>()
-                        call.respond(WalletIssuanceHandler.generateAuthorizationUrl(req))
+                        try {
+                            call.respond(WalletIssuanceHandler.generateAuthorizationUrl(req))
+                        } catch (e: Exception) {
+                            if (Oid4vcProtocolErrors.isClientProtocolFailure(e)) {
+                                call.respondProtocolFailure(e)
+                                return@post
+                            }
+                            throw e
+                        }
                     }
 
                     post("/exchange-code", {
@@ -984,13 +1016,21 @@ object Wallet2RouteHandler {
                     }) {
                         val wallet = call.resolveOrRespond(resolver, getAccountId) ?: return@post
                         val req = call.receive<ExchangeCodeRequest>()
-                        call.respond(
-                            WalletIssuanceHandler.exchangeCode(
-                                wallet = wallet,
-                                request = req,
-                                attestationAssembler = attestationAssembler,
+                        try {
+                            call.respond(
+                                WalletIssuanceHandler.exchangeCode(
+                                    wallet = wallet,
+                                    request = req,
+                                    attestationAssembler = attestationAssembler,
+                                )
                             )
-                        )
+                        } catch (e: Exception) {
+                            if (Oid4vcProtocolErrors.isClientProtocolFailure(e)) {
+                                call.respondProtocolFailure(e)
+                                return@post
+                            }
+                            throw e
+                        }
                     }
 
                     post("/deferred", {
@@ -1024,22 +1064,30 @@ object Wallet2RouteHandler {
                     }) {
                         val wallet = call.resolveOrRespond(resolver, getAccountId) ?: return@post
                         val req = call.receive<PresentCredentialRequest>()
-                        val result = WalletPresentationHandler.presentCredential(
-                            wallet = wallet,
-                            request = req,
-                            transactionDataTypeRegistry = TransactionDataTypeRegistry(emptySet()),
-                        )
-                        Wallet2EventLog.append(
-                            walletId = wallet.id,
-                            event = "Credential",
-                            action = "Present",
-                            originator = "verifier",
-                            data = eventData(
-                                "redirect_to" to (result.redirectTo ?: ""),
-                                "transmission_success" to (result.transmissionSuccess?.toString() ?: ""),
-                            ),
-                        )
-                        call.respond(result)
+                        try {
+                            val result = WalletPresentationHandler.presentCredential(
+                                wallet = wallet,
+                                request = req,
+                                transactionDataTypeRegistry = TransactionDataTypeRegistry(emptySet()),
+                            )
+                            Wallet2EventLog.append(
+                                walletId = wallet.id,
+                                event = "Credential",
+                                action = "Present",
+                                originator = "verifier",
+                                data = eventData(
+                                    "redirect_to" to (result.redirectTo ?: ""),
+                                    "transmission_success" to (result.transmissionSuccess?.toString() ?: ""),
+                                ),
+                            )
+                            call.respond(result)
+                        } catch (e: Exception) {
+                            if (Oid4vcProtocolErrors.isClientProtocolFailure(e)) {
+                                call.respondProtocolFailure(e)
+                                return@post
+                            }
+                            throw e
+                        }
                     }
 
                     post("/isolated", {
@@ -1064,7 +1112,15 @@ object Wallet2RouteHandler {
                         response { HttpStatusCode.OK to { body<ResolveVpRequestResult>() } }
                     }) {
                         val req = call.receive<ResolveVpRequestRequest>()
-                        call.respond(WalletPresentationHandler.resolveRequest(req))
+                        try {
+                            call.respond(WalletPresentationHandler.resolveRequest(req))
+                        } catch (e: Exception) {
+                            if (Oid4vcProtocolErrors.isClientProtocolFailure(e)) {
+                                call.respondProtocolFailure(e)
+                                return@post
+                            }
+                            throw e
+                        }
                     }
 
                     post("/match-credentials", {

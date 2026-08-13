@@ -10,6 +10,7 @@ import id.walt.crypto.utils.Base64Utils.decodeFromBase64Url
 import id.walt.dcql.DcqlDisclosure
 import id.walt.dcql.DcqlMatcher
 import id.walt.dcql.RawDcqlCredential
+import id.walt.dcql.TrustedAuthoritiesChecker
 import id.walt.dcql.models.ClaimsQuery
 import id.walt.dcql.models.CredentialQuery
 import id.walt.dcql.models.DcqlQuery
@@ -149,7 +150,12 @@ data class MatchCredentialsResult(
     /** Total number of credential matches across all query IDs. */
     val matchCount: Int,
     /** For each matched query ID, the wallet-assigned IDs of matching credentials. */
-    val matchedCredentialIds: Map<String, List<String>>
+    val matchedCredentialIds: Map<String, List<String>>,
+    /**
+     * When [matchCount] is 0 and the DCQL query included `trusted_authorities`,
+     * explains that issuer trust (not SoftHSM) may be why nothing matched.
+     */
+    val noMatchHint: String? = null,
 )
 
 @Serializable
@@ -344,7 +350,7 @@ object WalletPresentationHandler {
         val query = requireNotNull(resolvedAuthorizationRequest.authorizationRequest.dcqlQuery) {
             "Authorization Request must contain dcql_query"
         }
-        val matched = DcqlMatcher.match(query, rawCredentials).getOrThrow()
+        val matched = matchDcql(query, rawCredentials).getOrThrow()
         onEvent(WalletSessionEvent.presentation_credentials_selected)
 
         val key = resolvePresentationSigningKey(wallet, request.keyId, matched)
@@ -599,8 +605,8 @@ object WalletPresentationHandler {
         val rawCredentials = request.credentials.mapIndexed { idx, stored ->
             stored.credential.toRawDcqlCredential(idx.toString())
         }
-        val matched = DcqlMatcher.match(request.dcqlQuery, rawCredentials).getOrThrow()
-        return buildMatchResult(matched, idByIndex)
+        val matched = matchDcql(request.dcqlQuery, rawCredentials).getOrThrow()
+        return buildMatchResult(matched, idByIndex, request.dcqlQuery)
     }
 
     // ---------------------------------------------------------------------------
@@ -615,14 +621,45 @@ object WalletPresentationHandler {
      */
     private fun buildMatchResult(
         matched: Map<String, List<DcqlMatcher.DcqlMatchResult>>,
-        idByIndex: Map<String, String>
+        idByIndex: Map<String, String>,
+        dcqlQuery: DcqlQuery? = null,
     ) = MatchCredentialsResult(
         matchedQueryIds = matched.keys.toList(),
         matchCount = matched.values.sumOf { it.size },
         matchedCredentialIds = matched.mapValues { (_, results) ->
             results.map { idByIndex[it.credential.id] ?: it.credential.id }
-        }
+        },
+        noMatchHint = noMatchHint(matched, dcqlQuery),
     )
+
+    private fun noMatchHint(
+        matched: Map<String, List<DcqlMatcher.DcqlMatchResult>>,
+        dcqlQuery: DcqlQuery?,
+    ): String? {
+        if (matched.isNotEmpty() || dcqlQuery == null) return null
+        val hasTrustedAuthorities = dcqlQuery.credentials.any { !it.trustedAuthorities.isNullOrEmpty() }
+        if (!hasTrustedAuthorities) return null
+        return (
+            "No credential matched this DCQL query. The verifier included trusted_authorities " +
+                "(issuer trust). Your wallet may hold the right credential type from an issuer " +
+                "that is not on that allowlist — that is verifier trust policy, not a SoftHSM / " +
+                "wallet signing bug."
+            )
+    }
+
+    /**
+     * DCQL match with [TrustedAuthoritiesChecker] so `trusted_authorities` is enforced
+     * (fail closed), not skipped.
+     */
+    private fun matchDcql(
+        query: DcqlQuery,
+        credentials: List<RawDcqlCredential>,
+    ): Result<Map<String, List<DcqlMatcher.DcqlMatchResult>>> =
+        DcqlMatcher.match(
+            query = query,
+            availableCredentials = credentials,
+            trustedAuthoritiesChecker = TrustedAuthoritiesChecker::matches,
+        )
 
     /**
      * DCQL-matches the wallet's own stored credentials against [query] without
@@ -650,13 +687,18 @@ object WalletPresentationHandler {
         }
         if (rawCredentials.isEmpty()) return MatchCredentialsResult(emptyList(), 0, emptyMap())
         // Preview step: unsatisfied required credential_sets is "no match", not a server error.
-        val matched = DcqlMatcher.match(request.dcqlQuery, rawCredentials).getOrElse { err ->
+        val matched = matchDcql(request.dcqlQuery, rawCredentials).getOrElse { err ->
             if (err is id.walt.dcql.DcqlMatchException) {
-                return MatchCredentialsResult(emptyList(), 0, emptyMap())
+                return MatchCredentialsResult(
+                    matchedQueryIds = emptyList(),
+                    matchCount = 0,
+                    matchedCredentialIds = emptyMap(),
+                    noMatchHint = noMatchHint(emptyMap(), request.dcqlQuery),
+                )
             }
             throw err
         }
-        return buildMatchResult(matched, idByIndex)
+        return buildMatchResult(matched, idByIndex, request.dcqlQuery)
     }
 
     /**
@@ -687,14 +729,19 @@ object WalletPresentationHandler {
                 wallet.findCredential(credentialId)
                     ?: throw IllegalArgumentException("Credential '$credentialId' not found in wallet")
             }
-            val matches = DcqlMatcher.match(
+            val matches = matchDcql(
                 query = DcqlQuery(credentials = listOf(query)),
-                availableCredentials = selectedCredentials.map { stored ->
+                credentials = selectedCredentials.map { stored ->
                     stored.credential.toRawDcqlCredential(stored.id)
                 },
             ).getOrThrow()[queryId].orEmpty()
             require(matches.size == selectedCredentials.size) {
-                "One or more selected credentials do not satisfy DCQL query '$queryId'"
+                "One or more selected credentials do not satisfy DCQL query '$queryId'" +
+                    (if (!query.trustedAuthorities.isNullOrEmpty()) {
+                        " (including trusted_authorities / issuer trust)"
+                    } else {
+                        ""
+                    })
             }
             matches
         }
@@ -753,7 +800,7 @@ object WalletPresentationHandler {
         }
 
         log.debug { "DCQL matching against $idx stored credential(s), queries=${query.credentials.map { it.id }}" }
-        val matched = DcqlMatcher.match(query.copy(credentialSets = null), rawCredentials).getOrThrow()
+        val matched = matchDcql(query.copy(credentialSets = null), rawCredentials).getOrThrow()
         log.trace { "DCQL match result: matchedQueryIds=${matched.keys}, matchCounts=${matched.mapValues { it.value.size }}" }
         return matched
     }

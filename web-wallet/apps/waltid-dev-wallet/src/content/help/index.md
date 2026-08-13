@@ -5,7 +5,15 @@ description: Using the walt.id + SECDSA educational wallet
 
 # Help
 
-This wallet is part of the **walt.id + SECDSA demo stack**. It stores verifiable credentials, creates DIDs from SoftHSM-backed keys, and speaks OpenID for Verifiable Credentials (OID4VCI / OID4VP) 1.0 via wallet-api2.
+This wallet is part of the **walt.id + SECDSA demo stack**. It stores verifiable credentials, creates DIDs from SoftHSM-backed keys, and speaks OpenID for Verifiable Credentials via wallet-api2.
+
+**Protocol baseline (pinned):**
+
+- [OpenID for Verifiable Credential Issuance 1.0](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html)
+- [OpenID for Verifiable Presentations 1.0](https://openid.net/specs/openid-4-verifiable-presentations-1_0.html) (+ errata)
+- OAuth [PAR](https://www.rfc-editor.org/rfc/rfc9126) / [PKCE](https://www.rfc-editor.org/rfc/rfc7636) (S256) / DCQL as required by those specs and the interop profile below
+
+**Interop profile order:** [DIIP](https://fidescommunity.github.io/DIIP/) first (published v4 text / v5 catalogs on a **1.0 wire**). HAIP / EUDI are a later, separate track — not claimed here yet.
 
 ## Quick start
 
@@ -32,10 +40,12 @@ The PIN unlocks the SoftHSM session in wallet-api2 memory. It is **not** written
 | Action | Where |
 |--------|--------|
 | Generate SECDSA key | Wallet → Settings → Keys → Generate |
-| Create `did:jwk` | Wallet → Settings → DIDs → New → JWK |
+| Create `did:jwk` (default) | Wallet → Settings → DIDs → New → JWK |
+| Create `did:web` (optional) | Wallet → Settings → DIDs → New → Web — you must host the DID document |
 | Inspect / delete | Keys or DIDs list → View |
 
 `did:jwk` only needs the **public** JWK cached at key generation. Signing still requires SoftHSM + PIN.
+`did:web` uses the same SECDSA key; publish `https://<domain>/.well-known/did.json` (or path) yourself.
 
 ### One SoftHSM key per account
 
@@ -50,14 +60,27 @@ The SECDSA lab keeps **one user key** for account `citizen-42`. If another walle
 3. **Phone / second device:** use the camera to scan the QR.
 4. Review the issuer and credential type, select your `did:jwk`.
 5. Depending on the grant shown on the issuance page:
-   - **pre-authorized_code** — enter the SECDSA PIN and click **Accept**.
-   - **authorization_code** — click **Continue at issuer**, sign in at the issuer, then return via `/oid4vci/callback` and unlock with the PIN to finish.
+   - **pre-authorized_code** — if the issuer shows a transaction code (`tx_code`), enter it on the issuance page (not the SoftHSM PIN), then unlock SoftHSM and click **Accept**.
+   - **authorization_code** — click **Continue at issuer**, sign in at the issuer, then return via `/oid4vci/callback` and unlock with the SoftHSM PIN to finish.
 
 Pre-authorized offers are typically **single-use**. If Accept already exchanged the code for a token but failed later, request a new offer from the issuer.
 
-For authorization_code, register `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (default `http://localhost:7115/oid4vci/callback`) at the issuer’s authorization server. Dev sandbox: [eduWallet sandbox](https://sandbox.dev.eduwallet.nl/).
+For authorization_code, the wallet always uses **PKCE S256**. Register `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (default `http://localhost:7115/oid4vci/callback`) at the issuer’s authorization server. Dev sandbox: [eduWallet sandbox](https://sandbox.dev.eduwallet.nl/).
 
-If the AS advertises `require_pushed_authorization_requests`, wallet-api2 uses **PAR** (RFC 9126) automatically before the browser redirect.
+If the AS advertises `require_pushed_authorization_requests`, wallet-api2 uses **PAR** (RFC 9126) automatically before the browser redirect. Auth requests send both `authorization_details` (credential configuration id) and OIDC/`scope` (`openid` plus the configuration’s `scope` when advertised).
+
+### Offer & device matrix
+
+| Situation | How |
+|-----------|-----|
+| Issuer shows QR on **another** device | Scan camera → issuance page |
+| Offer URL / QR on **same** screen | Paste URL or upload screenshot (camera cannot read same screen) |
+| HTTPS offer page | Paste; wallet wraps as `openid-credential-offer://?credential_offer_uri=…` |
+| Legacy `openid-initiate-issuance://` | Mapped to issuance flow |
+| Lab verify | Default `cross_device` (QR / second device). Same-device redirects when Lab provides redirect URIs |
+| Auth-code return on phone | `/oid4vci/callback` may deep-link to the mobile app scheme |
+
+**Immediate Issuance** (issuer pushes a credential without a classic offer UX) is **not** implemented as a protocol feature. The issuance `?accept=` flag only auto-clicks Accept in the wallet UI.
 
 ### Sandbox eduID: `No entitlement found`
 
@@ -80,6 +103,15 @@ Paste/camera offer intake is fine when the offer itself is valid; entitlement de
 2. Choose which credential to share.
 3. Unlock SoftHSM with the PIN so the wallet can sign the presentation proof.
 
+Verifier `client_id` may be a **bare DID** (DIIP `did` scheme, e.g. `did:web:…`) or
+`decentralized_identifier:did:…` (OID4VP 1.0). If the DCQL query includes
+`trusted_authorities` and nothing matches, the verifier’s **issuer trust list** may
+exclude your credential’s issuer — that is not a SoftHSM failure.
+
+SD-JWT credentials (`dc+sd-jwt` / `vc+sd-jwt`) are first-class for receive/present via
+wallet-api2 overlays (stock walt.id 0.23.1 often stores them as `jwt_vc_json`; the UI remaps
+display format from JWT `typ`).
+
 ## Useful links
 
 - [Settings](/settings) — SECDSA defaults and wallet shortcuts
@@ -92,11 +124,14 @@ Paste/camera offer intake is fine when the offer itself is valid; entitlement de
 
 | Symptom | Likely cause |
 |---------|----------------|
+| Accept fails with wrong `tx_code` / Token request failed | Wrong issuer transaction code (not SoftHSM PIN) — re-enter or request a fresh offer |
 | Accept fails with `invalid_request` | Stale SoftHSM key/DID (see above) or burned offer — unless the message mentions a **JSON path** (see next row) |
 | Auth-code: issuer needs `given_name` / JSON path missing | IdP ID token lacks that profile claim — use an account with a full profile, or another offer; not a wallet signing bug |
 | Auth-code callback: no matching `state` | Session expired / different browser tab — restart from Scan |
 | Auth-code: `redirect_uri` / `invalid_client` | `OID4VCI_*` not registered at the issuer AS |
 | Auth-code reaches credential endpoint then `credential_request_denied` / **No entitlement found** | Sandbox account not entitled for that card — use an entitled user, or a pre-auth / freeform offer (not a wallet bug) |
+| Present: no credentials match + trusted_authorities hint | Verifier issuer allowlist excludes your VC’s issuer — trust policy, not SoftHSM |
+| Present: UnsupportedPrefix / client_id parse | Verifier client_id scheme not supported — bare DID and `decentralized_identifier:` are supported |
 | PIN modal keeps failing | Wrong PIN, or SECDSA lab not running (`docker compose ps`) |
 | Empty keys after restart | Memory WSCD was wiped — regenerate key + DID |
 | Create DID looks failed but DID exists | Older proxy gzip bug — rebuild/restart `web-wallet` |

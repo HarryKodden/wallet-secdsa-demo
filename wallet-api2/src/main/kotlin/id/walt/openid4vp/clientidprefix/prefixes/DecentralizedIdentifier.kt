@@ -10,7 +10,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * Handles `decentralized_identifier` prefix per OpenID4VP 1.0, Section 5.9.3.
+ * Handles DID-based verifier client identifiers:
+ * - OID4VP 1.0: `decentralized_identifier:did:…`
+ * - DIIP `did` scheme: bare `did:jwk:…` / `did:web:…` as `client_id`
  */
 @Serializable
 data class DecentralizedIdentifier(val did: String, override val rawValue: String) : ClientId {

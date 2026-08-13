@@ -33,6 +33,7 @@ export default defineEventHandler(async (event) => {
         queryId: body.queryId,
         successRedirectUri: body.successRedirectUri,
         errorRedirectUri: body.errorRedirectUri,
+        flowType: body.flowType,
     });
 
     const upstream = await labFetch(

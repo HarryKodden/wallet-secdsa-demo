@@ -63,9 +63,15 @@ export function formatOid4vciReceiveError(
     const text = extractReceiveErrorText(err);
     if (!text) return "Credential issuance failed.";
 
-    const jsonPath = text.match(/JSON path\s+(\$\.[\w.-]+)/i)?.[1];
-    if (jsonPath || /does not exist,\s*or evaluates to null/i.test(text)) {
-        const claim = (jsonPath ?? "$.…").replace(/^\$\./, "");
+    const jsonPath =
+        text.match(/JSON path\s+[`'"]?(\$\.[\w.-]+)/i)?.[1] ||
+        text.match(/(\$\.[\w.-]+)\s+does not exist/i)?.[1];
+    if (
+        jsonPath ||
+        /does not exist,\s*or evaluates to null/i.test(text) ||
+        /All specified JSON paths must exist/i.test(text)
+    ) {
+        const claim = (jsonPath ?? "required claim").replace(/^\$\./, "");
         return (
             `The issuer needs “${claim}” from your login, but your identity provider did not provide it ` +
             `(that field was missing or null in the ID token).\n\n` +
@@ -80,6 +86,18 @@ export function formatOid4vciReceiveError(
             `The issuer denied this credential for your account (entitlement / policy), ` +
             `not because of a wallet proof failure.\n\n` +
             `Use an entitled account for that card, or try a pre-authorized / freeform offer instead.`
+        );
+    }
+
+    if (
+        /\btx_code\b/i.test(text) ||
+        (/invalid_grant|Token request failed/i.test(text) &&
+            /pin|transaction.?code|tx.?code|user_pin/i.test(text))
+    ) {
+        return (
+            `The issuer rejected the transaction code (tx_code / offer PIN).\n\n` +
+            `Re-check the code shown by the issuer (this is not your SoftHSM PIN), ` +
+            `or request a fresh pre-authorized offer.`
         );
     }
 
@@ -100,7 +118,7 @@ export function formatOid4vciReceiveError(
         );
     }
 
-    if (/invalid_request/i.test(text)) {
+    if (/invalid_request/i.test(text) && !/JSON path|entitlement/i.test(text)) {
         return (
             `${text}\n\nOften a stale SECDSA key/DID after SoftHSM re-key, or a burned single-use offer. ` +
             `Delete this wallet’s SECDSA key and did:jwk, regenerate both, then use a fresh offer.`
@@ -110,39 +128,58 @@ export function formatOid4vciReceiveError(
     return text;
 }
 
+/** Collect nested ofetch / h3 / proxy error strings and pick the most informative one. */
 function extractReceiveErrorText(err: unknown): string {
-    if (err == null) return "";
+    const candidates = collectErrorStrings(err)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    if (candidates.length === 0) return "";
+
+    const score = (s: string): number => {
+        let n = Math.min(s.length, 2000);
+        if (/JSON path/i.test(s) || /\$\.[\w.-]+\s+does not exist/i.test(s)) n += 20_000;
+        if (/All specified JSON paths must exist/i.test(s)) n += 15_000;
+        if (/no entitlement found/i.test(s)) n += 15_000;
+        if (/invalid_request|invalid_proof|credential_request_denied|invalid_grant/i.test(s)) n += 5_000;
+        if (/error_description/i.test(s)) n += 2_000;
+        if (/^\[(GET|POST|PUT|PATCH|DELETE)\]/i.test(s)) n -= 10_000;
+        if (/^\d{3}\s+\w+/i.test(s) && s.length < 40) n -= 5_000;
+        return n;
+    };
+
+    return [...candidates].sort((a, b) => score(b) - score(a))[0] ?? "";
+}
+
+function collectErrorStrings(err: unknown, out: string[] = [], depth = 0): string[] {
+    if (err == null || depth > 6) return out;
     if (typeof err === "string") {
+        out.push(err);
         const trimmed = err.trim();
-        if (trimmed.startsWith("{")) {
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
             try {
-                return extractReceiveErrorText(JSON.parse(trimmed));
+                collectErrorStrings(JSON.parse(trimmed), out, depth + 1);
             } catch {
-                return trimmed;
+                /* ignore */
             }
         }
-        return trimmed;
+        return out;
     }
     if (typeof err === "object") {
         const o = err as Record<string, unknown>;
-        const data = o.data;
-        if (typeof data === "string" && data.trim()) return extractReceiveErrorText(data);
-        if (data && typeof data === "object") {
-            const d = data as Record<string, unknown>;
-            const nested =
-                (typeof d.message === "string" && d.message) ||
-                (typeof d.statusMessage === "string" && d.statusMessage) ||
-                (typeof d.error_description === "string" && d.error_description) ||
-                (typeof d.error === "string" && d.error);
-            if (nested) return String(nested);
+        for (const key of [
+            "message",
+            "statusMessage",
+            "statusText",
+            "error_description",
+            "error",
+            "data",
+            "body",
+            "cause",
+        ]) {
+            if (key in o) collectErrorStrings(o[key], out, depth + 1);
         }
-        const top =
-            (typeof o.message === "string" && o.message) ||
-            (typeof o.statusMessage === "string" && o.statusMessage) ||
-            (typeof o.error_description === "string" && o.error_description);
-        if (top) return String(top);
     }
-    return String(err);
+    return out;
 }
 
 function storage(): Storage | null {

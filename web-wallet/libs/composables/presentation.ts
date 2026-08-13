@@ -36,6 +36,7 @@ type MatchCredentialsResult = {
   matchedQueryIds: string[];
   matchCount: number;
   matchedCredentialIds: Record<string, string[]>;
+  noMatchHint?: string | null;
 };
 
 function parseStringArrayParameter(value: string | null): string[] {
@@ -156,8 +157,7 @@ export async function usePresentation(query: any) {
     );
   } catch (e: any) {
     failed.value = true;
-    failMessage.value =
-      e?.data?.message ?? e?.data ?? e?.statusMessage ?? e?.message ?? "Failed to resolve presentation request";
+    failMessage.value = formatPresentationResolveError(e);
     throw e;
   }
 
@@ -220,10 +220,18 @@ export async function usePresentation(query: any) {
 
   const presentationRequestPayload = JSON.stringify(dcqlQuery);
 
-  const matchedCredentials = await fetchMatchedCredentials(
+  const matchResult = await fetchMatchedCredentialsResult(
     currentWallet.value as string,
     dcqlQuery,
   );
+  const matchedCredentials = matchResult.credentials;
+
+  if (matchedCredentials.length === 0) {
+    failed.value = true;
+    failMessage.value =
+      matchResult.noMatchHint?.trim() ||
+      "No credentials in this wallet match the verifier’s DCQL query.";
+  }
 
   const selection = ref<{ [key: string]: boolean }>({});
   const selectedCredentialIds = computed(() =>
@@ -411,7 +419,9 @@ export async function usePresentation(query: any) {
       if (transmissionFailed) {
         failed.value = true;
         failMessage.value =
-          "Verifier rejected the presentation (often a holder-key / DID mismatch). " +
+          "Verifier rejected the presentation. Often a holder-key / DID mismatch, " +
+          "or the verifier does not trust this credential’s issuer " +
+          "(trusted_authorities / trust policy — not SoftHSM by itself). " +
           "Use the SECDSA PIN for the credential's SoftHSM account, and ensure the " +
           "wallet DID matches the credential subject." +
           (holderKeyId ? ` (credential key: ${holderKeyId})` : "");
@@ -473,10 +483,10 @@ export async function usePresentation(query: any) {
   };
 }
 
-async function fetchMatchedCredentials(
+async function fetchMatchedCredentialsResult(
   walletId: string,
   dcqlQuery: Record<string, unknown>,
-): Promise<MatchedCredential[]> {
+): Promise<{credentials: MatchedCredential[]; noMatchHint: string | null}> {
   const match = await $fetch<MatchCredentialsResult>(
     `/wallet-api/wallet/${walletId}/credentials/present/match-credentials-from-store`,
     {
@@ -491,7 +501,12 @@ async function fetchMatchedCredentials(
     ),
   ];
 
-  if (ids.length === 0) return [];
+  if (ids.length === 0) {
+    return {
+      credentials: [],
+      noMatchHint: match.noMatchHint ?? null,
+    };
+  }
 
   const credentials = await Promise.all(
     ids.map(async (id) => {
@@ -507,5 +522,45 @@ async function fetchMatchedCredentials(
     }),
   );
 
-  return credentials;
+  return {credentials, noMatchHint: match.noMatchHint ?? null};
+}
+
+function formatPresentationResolveError(err: unknown): string {
+  const text = extractNestedErrorText(err);
+  if (!text) return "Failed to resolve presentation request";
+
+  if (/UnsupportedPrefix|unsupported.*prefix|Could not parse client_id/i.test(text)) {
+    return (
+      `${text}\n\n` +
+      `This wallet supports verifier client_id as a bare DID (DIIP \`did\` scheme) ` +
+      `and as \`decentralized_identifier:did:…\` (OID4VP 1.0).`
+    );
+  }
+  if (/DidResolutionFailed|Invalid DID|MissingRequestObject/i.test(text)) {
+    return (
+      `${text}\n\n` +
+      `Verifier DID client authentication failed — check the signed request object and DID document keys.`
+    );
+  }
+  return text;
+}
+
+function extractNestedErrorText(err: unknown): string {
+  if (err == null) return "";
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    const o = err as Record<string, unknown>;
+    const data = o.data;
+    if (typeof data === "string" && data.trim()) return data;
+    if (data && typeof data === "object") {
+      const d = data as Record<string, unknown>;
+      for (const k of ["message", "statusMessage", "error_description", "error"]) {
+        if (typeof d[k] === "string" && (d[k] as string).trim()) return String(d[k]);
+      }
+    }
+    for (const k of ["message", "statusMessage", "statusText"]) {
+      if (typeof o[k] === "string" && (o[k] as string).trim()) return String(o[k]);
+    }
+  }
+  return String(err);
 }

@@ -56,6 +56,7 @@ export function normalizeWalletCredential(raw: any): WalletCredential {
         }
 
         const format = nested.format ?? raw.format;
+        const openIdFormat = inferOpenId4VpFormat(nested, format);
         // Enrich mdoc credentialData so the UI has a usable type/title
         let parsedDocument = credentialData ?? undefined;
         if (parsedDocument && (format === "mso_mdoc" || nested.type === "vc-mdocs")) {
@@ -70,7 +71,7 @@ export function normalizeWalletCredential(raw: any): WalletCredential {
 
         return {
             id: raw.id,
-            format,
+            format: openIdFormat ?? format,
             document,
             disclosures,
             parsedDocument,
@@ -418,4 +419,22 @@ function formatMdocValue(v: unknown): string {
     } catch {
         return String(v);
     }
+}
+
+/**
+ * Prefer JWT `typ` / signature hints so stock `jwt_vc_json` SD-JWT shows as
+ * `dc+sd-jwt` / `vc+sd-jwt` in the UI (matches wallet-api2 present remaps).
+ */
+function inferOpenId4VpFormat(nested: any, fallback?: string): string | undefined {
+    const typ =
+        nested?.signature?.jwtHeader?.typ ??
+        nested?.jwtHeader?.typ ??
+        nested?.header?.typ;
+    if (typ === "dc+sd-jwt") return "dc+sd-jwt";
+    if (typ === "vc+sd-jwt" || typ === "vc+sd_jwt") return "vc+sd-jwt";
+    if (typeof fallback === "string" && /sd-jwt/i.test(fallback)) return fallback;
+    if (Array.isArray(nested?.disclosures) || typeof nested?.disclosures === "string") {
+        if (fallback === "jwt_vc_json" || !fallback) return "vc+sd-jwt";
+    }
+    return fallback;
 }

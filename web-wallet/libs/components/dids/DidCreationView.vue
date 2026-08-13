@@ -139,6 +139,12 @@ const props = defineProps({
         required: false,
         default: null,
     },
+    /** When set, create is blocked unless the selected key's type is in this list. */
+    requiredKeyTypes: {
+        type: Array as () => string[],
+        required: false,
+        default: () => [],
+    },
 });
 
 const loading = ref(false);
@@ -214,6 +220,19 @@ async function createDid() {
         error.value = "Select or generate a key before creating a DID.";
         loading.value = false;
         return;
+    }
+
+    const required = props.requiredKeyTypes ?? [];
+    if (required.length > 0) {
+        const selected = keys.value.find((k) => k.keyId === keyId.value);
+        const kt = selected?.keyType ?? "";
+        if (!required.some((t) => t.toLowerCase() === kt.toLowerCase())) {
+            error.value =
+                `did:${props.method} requires a ${required.join(" or ")} key, ` +
+                `but the selected key is ${kt || "unknown"}. Generate a matching key type first.`;
+            loading.value = false;
+            return;
+        }
     }
 
     const options: Record<string, string | boolean | number> = {};

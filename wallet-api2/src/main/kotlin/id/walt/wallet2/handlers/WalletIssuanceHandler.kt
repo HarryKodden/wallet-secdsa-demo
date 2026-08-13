@@ -3,6 +3,7 @@ package id.walt.wallet2.handlers
 import id.walt.credentials.CredentialParser
 import id.walt.crypto.keys.DirectSerializedKey
 import id.walt.crypto.keys.Key
+import id.walt.did.dids.DidVerificationMethodResolver
 import id.walt.openid4vci.CryptographicBindingMethod
 import id.walt.openid4vci.clientauth.ClientAuthenticationMethods
 import id.walt.openid4vci.errors.CredentialError
@@ -199,6 +200,12 @@ data class ResolveOfferResult(
     val grantType: String?,
     val preAuthorizedCode: String? = null,
     val txCodeRequired: Boolean,
+    /** OID4VCI `tx_code.input_mode` when the pre-authorized grant requires a transaction code. */
+    val txCodeInputMode: String? = null,
+    /** OID4VCI `tx_code.length` hint for the UI (null = unspecified). */
+    val txCodeLength: Int? = null,
+    /** OID4VCI `tx_code.description` shown next to the transaction-code field. */
+    val txCodeDescription: String? = null,
     val credentialEndpoint: Url,
     val offeredCredentials: List<String>,
     val tokenEndpoint: Url? = null,
@@ -357,9 +364,17 @@ data class GenerateAuthorizationUrlRequest(
     override val offerJson: JsonObject? = null,
     val clientId: String = DEFAULT_CLIENT_ID,
     val redirectUri: Url = Url("openid://"),
+    /**
+     * PKCE is always required (S256). Kept for API compatibility; `false` is rejected.
+     */
     val usePkce: Boolean = true
 ) : CredentialOfferSource {
-    init { checkOfferSource() }
+    init {
+        checkOfferSource()
+        require(usePkce) {
+            "PKCE S256 is required for authorization_code (OID4VCI / DIIP profile)"
+        }
+    }
 }
 
 @Serializable
@@ -436,8 +451,11 @@ object WalletIssuanceHandler {
         }
 
     /**
-     * Builds a proof JWT, choosing DID-based binding when [did] is non-null, or JWK-inclusion
-     * otherwise. Extracted to eliminate three identical `if (did != null)` proof-building blocks.
+     * Builds a proof JWT.
+     *
+     * - DID binding: `kid` from holder DID `authentication` (DIIP); `iss` = DID by default,
+     *   or [clientId] when [preferClientIdAsIss] (auth-code ASs that require `iss=client_id`).
+     * - Otherwise: embed JWK in the header.
      */
     private suspend fun JwtProofBuilder.buildProof(
         key: Key,
@@ -445,9 +463,18 @@ object WalletIssuanceHandler {
         nonce: String?,
         did: String?,
         clientId: String? = null,
-    ) =
-        if (did != null) buildJwtProof(key, issuer, nonce, keyId = did, clientId = clientId)
-        else buildJwtProof(key, issuer, nonce, includeJwk = true, clientId = clientId)
+        preferClientIdAsIss: Boolean = false,
+    ): id.walt.openid4vci.prooftypes.Proofs {
+        if (did == null) {
+            return buildJwtProof(key, issuer, nonce, includeJwk = true, clientId = clientId)
+        }
+        val kid = DidVerificationMethodResolver.authenticationKid(did)
+        val iss = when {
+            preferClientIdAsIss && !clientId.isNullOrBlank() -> clientId
+            else -> did
+        }
+        return buildJwtProof(key, issuer, nonce, keyId = kid, clientId = iss)
+    }
 
     /** Immediate, non-previewed pre-authorized-code issuance flow. */
     fun receiveCredentialFlow(
@@ -586,9 +613,22 @@ object WalletIssuanceHandler {
                             offeredCredential.configuration.cryptographicBindingMethodsSupported
                         )
                         if (did != null && !preferJwkBinding) {
-                            proofBuilder.buildJwtProof(key, offer.credentialIssuer, nonce, keyId = did).jwt?.firstOrNull()
+                            proofBuilder.buildProof(
+                                key = key,
+                                issuer = offer.credentialIssuer,
+                                nonce = nonce,
+                                did = did,
+                                clientId = request.clientId,
+                                preferClientIdAsIss = false,
+                            ).jwt?.firstOrNull()
                         } else {
-                            proofBuilder.buildJwtProof(key, offer.credentialIssuer, nonce, includeJwk = true).jwt?.firstOrNull()
+                            proofBuilder.buildJwtProof(
+                                key,
+                                offer.credentialIssuer,
+                                nonce,
+                                includeJwk = true,
+                                clientId = request.clientId.takeIf { it.isNotBlank() },
+                            ).jwt?.firstOrNull()
                         }
                     }
                 } else null
@@ -722,6 +762,7 @@ object WalletIssuanceHandler {
         val issuerMetadata = metadataResolver.resolveCredentialIssuerMetadata(offer.credentialIssuer)
         val asMetadata = metadataResolver.resolveAuthorizationServerMetadataWithFallback(issuerMetadata)
         val offeredCredentials = OfferedCredentialResolver.resolveOfferedCredentials(offer, issuerMetadata)
+        val txCode = offer.grants?.preAuthorizedCode?.txCode
         return ResolvedIssuanceOffer(
             source = request,
             summary = ResolveOfferResult(
@@ -730,7 +771,10 @@ object WalletIssuanceHandler {
                 grantType = offer.grants?.preAuthorizedCode?.let { "pre-authorized_code" }
                     ?: offer.grants?.authorizationCode?.let { "authorization_code" },
                 preAuthorizedCode = offer.grants?.preAuthorizedCode?.preAuthorizedCode,
-                txCodeRequired = offer.grants?.preAuthorizedCode?.txCode != null,
+                txCodeRequired = txCode != null,
+                txCodeInputMode = txCode?.inputMode,
+                txCodeLength = txCode?.length,
+                txCodeDescription = txCode?.description,
                 tokenEndpoint = asMetadata.tokenEndpoint?.let { Url(it) },
                 credentialEndpoint = Url(issuerMetadata.credentialEndpoint),
                 offeredCredentials = offeredCredentials.map { it.credentialConfigurationId },
@@ -866,6 +910,7 @@ object WalletIssuanceHandler {
             request.nonce,
             request.did,
             clientId = request.clientId,
+            preferClientIdAsIss = !request.clientId.isNullOrBlank(),
         )
         return SignProofResult(proofJwt = proofs.jwt?.firstOrNull() ?: error("Proof signing produced no JWT"))
     }
@@ -1099,6 +1144,8 @@ object WalletIssuanceHandler {
         val asMetadata =
             IssuerMetadataResolver(httpClient).resolveAuthorizationServerMetadataWithFallback(issuerMetadata)
 
+        requirePkceS256(asMetadata)
+
         val authorizationEndpoint = asMetadata.authorizationEndpoint
             ?: error("Authorization server has no authorization_endpoint")
 
@@ -1106,6 +1153,10 @@ object WalletIssuanceHandler {
         val authBuilder = id.waltid.openid4vci.wallet.authorization.AuthorizationRequestBuilder(clientConfig)
         val credentialConfigurationId = offer.credentialConfigurationIds.first()
         val issuerState = offer.grants?.authorizationCode?.issuerState
+        // DIIP: support credential scope alongside authorization_details (openid for OIDC AS).
+        val authorizeScope = oid4vciAuthorizeScope(
+            issuerMetadata.getCredentialConfiguration(credentialConfigurationId)?.scope,
+        )
 
         val authRequest = if (asMetadata.requirePushedAuthorizationRequests == true) {
             pushThenBuildAuthorizationRequest(
@@ -1116,26 +1167,64 @@ object WalletIssuanceHandler {
                 asMetadata = asMetadata,
                 credentialConfigurationId = credentialConfigurationId,
                 issuerState = issuerState,
-                usePkce = request.usePkce,
+                scope = authorizeScope,
+                usePkce = true,
             )
         } else {
             authBuilder.buildAuthorizationRequest(
                 authorizationEndpoint = authorizationEndpoint,
                 credentialConfigurationId = credentialConfigurationId,
                 issuerState = issuerState,
-                usePKCE = request.usePkce,
+                scope = authorizeScope,
+                usePKCE = true,
                 metadata = asMetadata,
             )
+        }
+
+        val codeVerifier = authRequest.pkceData?.codeVerifier
+            ?: error("PKCE S256 code_verifier missing from authorization request")
+        val challengeMethod = authRequest.pkceData?.codeChallengeMethod
+        if (
+            challengeMethod != null &&
+            challengeMethod != id.waltid.openid4vci.wallet.oauth.PKCEManager.CodeChallengeMethod.S256
+        ) {
+            error("PKCE method ${challengeMethod.value} is not allowed; S256 is required")
         }
 
         return GenerateAuthorizationUrlResult(
             authorizationUrl = Url(authRequest.url),
             state = authRequest.state,
-            codeVerifier = authRequest.pkceData?.codeVerifier,
+            codeVerifier = codeVerifier,
             credentialConfigurationId = credentialConfigurationId,
             credentialIssuerBaseUrl = offer.credentialIssuer,
             nonceEndpoint = issuerMetadata.nonceEndpoint?.let { Url(it) },
         )
+    }
+
+    /**
+     * DIIP / this profile require PKCE S256. Empty AS metadata → walt.id defaults to S256;
+     * if methods are advertised, S256 must be among them (plain-only AS is rejected).
+     */
+    private fun requirePkceS256(asMetadata: AuthorizationServerMetadata) {
+        val methods = asMetadata.codeChallengeMethodsSupported
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+        if (methods.isEmpty()) return
+        val hasS256 = methods.any { it.equals("S256", ignoreCase = true) }
+        if (!hasS256) {
+            error(
+                "Authorization server does not support PKCE S256 " +
+                    "(code_challenge_methods_supported=$methods). S256 is required.",
+            )
+        }
+    }
+
+    /** `openid` plus credential configuration `scope` when the issuer advertises one. */
+    private fun oid4vciAuthorizeScope(credentialScope: String?): String {
+        val parts = linkedSetOf("openid")
+        credentialScope?.trim()?.takeIf { it.isNotEmpty() }?.let { parts.add(it) }
+        return parts.joinToString(" ")
     }
 
     /**
@@ -1150,6 +1239,7 @@ object WalletIssuanceHandler {
         asMetadata: AuthorizationServerMetadata,
         credentialConfigurationId: String,
         issuerState: String?,
+        scope: String,
         usePkce: Boolean,
     ): id.waltid.openid4vci.wallet.authorization.AuthorizationRequestBuilder.AuthorizationRequest {
         val parEndpoint = asMetadata.pushedAuthorizationRequestEndpoint
@@ -1161,7 +1251,7 @@ object WalletIssuanceHandler {
         val (parParams, pkceData) = authBuilder.buildPushedAuthorizationRequest(
             credentialConfigurationId = credentialConfigurationId,
             issuerState = issuerState,
-            scope = null,
+            scope = scope,
             usePKCE = usePkce,
             metadata = asMetadata,
         )
@@ -1397,7 +1487,14 @@ object WalletIssuanceHandler {
             nonceEndpoint = issuerMetadata.nonceEndpoint,
             httpClient = httpClient,
             buildProof = { nonce ->
-                proofBuilder.buildProof(key, credentialIssuerBaseUrl, nonce, did).jwt?.firstOrNull()
+                proofBuilder.buildProof(
+                    key,
+                    credentialIssuerBaseUrl,
+                    nonce,
+                    did,
+                    clientId = clientId,
+                    preferClientIdAsIss = true,
+                ).jwt?.firstOrNull()
             },
             onProofGenerated = { onEvent(WalletSessionEvent.issuance_proof_signed) },
         )

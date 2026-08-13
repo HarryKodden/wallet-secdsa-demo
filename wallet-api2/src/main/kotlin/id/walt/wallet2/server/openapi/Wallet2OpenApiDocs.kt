@@ -101,7 +101,8 @@ object Wallet2OpenApiDocs {
         description = """
             Registers a DID in the wallet's DID store using an existing key.
 
-            Common `method` values: `key` (did:key), `jwk` (did:jwk), `web` (did:web), and `cheqd`.
+            Common `method` values for this SoftHSM demo: `key` (did:key), `jwk` (did:jwk), and `web` (did:web).
+            Prefer `jwk` or `web` for DIIP holder DIDs (secp256r1 / ES256).
             When `keyId` is omitted, the wallet's default key is used — generate one first via
             `POST /wallet/{walletId}/keys/generate` if the wallet has no keys yet.
 

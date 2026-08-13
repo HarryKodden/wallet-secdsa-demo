@@ -46,6 +46,10 @@ export async function useIssuance(query: any) {
     const failMessage = ref("Unknown error occurred.");
     const grantType = ref<IssuanceGrantType>("unknown");
     const txCodeRequired = ref(false);
+    const txCode = ref("");
+    const txCodeInputMode = ref<string | null>(null);
+    const txCodeLength = ref<number | null>(null);
+    const txCodeDescription = ref<string | null>(null);
     const credentialEndpoint = ref<string>("");
     const nonceEndpoint = ref<string | null>(null);
 
@@ -63,6 +67,9 @@ export async function useIssuance(query: any) {
             offeredCredentials?: string[];
             grantType?: string | null;
             txCodeRequired?: boolean;
+            txCodeInputMode?: string | null;
+            txCodeLength?: number | null;
+            txCodeDescription?: string | null;
             credentialEndpoint?: string;
             nonceEndpoint?: string | null;
         }>(`/wallet-api/wallet/${currentWallet.value}/credentials/receive/resolve-offer`, {
@@ -85,6 +92,10 @@ export async function useIssuance(query: any) {
             grantType.value = "unknown";
         }
         txCodeRequired.value = Boolean(resolved.txCodeRequired);
+        txCodeInputMode.value = resolved.txCodeInputMode ?? null;
+        txCodeLength.value =
+            typeof resolved.txCodeLength === "number" ? resolved.txCodeLength : null;
+        txCodeDescription.value = resolved.txCodeDescription ?? null;
         credentialEndpoint.value = resolved.credentialEndpoint
             ? String(resolved.credentialEndpoint)
             : "";
@@ -176,6 +187,13 @@ export async function useIssuance(query: any) {
                 );
             }
 
+            if (txCodeRequired.value && !txCode.value.trim()) {
+                failed.value = true;
+                failMessage.value =
+                    "This offer requires a transaction code (tx_code / PIN from the issuer). Enter it, then Accept.";
+                return;
+            }
+
             const {ensureUnlocked} = useSecdsaPin();
             const unlocked = await ensureUnlocked({
                 title: "Enter SECDSA PIN to receive credential",
@@ -187,6 +205,9 @@ export async function useIssuance(query: any) {
                 body: {
                     offerUrl: request,
                     ...(did ? {did} : {}),
+                    ...(txCodeRequired.value && txCode.value.trim()
+                        ? {txCode: txCode.value.trim()}
+                        : {}),
                 },
             });
             navigateTo(`/wallet/${currentWallet.value}`);
@@ -218,6 +239,10 @@ export async function useIssuance(query: any) {
         issuerHost,
         grantType,
         txCodeRequired,
+        txCode,
+        txCodeInputMode,
+        txCodeLength,
+        txCodeDescription,
         oid4vciRedirectUri,
     };
 }

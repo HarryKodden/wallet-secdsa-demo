@@ -82,9 +82,11 @@ function buildMobileDeepLink(): string | null {
   return `${MOBILE_CALLBACK_SCHEME}?${params.toString()}`;
 }
 
-function fail(message: string) {
+function fail(message: unknown) {
   phase.value = "error";
-  errorMessage.value = message;
+  // Always run through the formatter so raw issuer/IdP text (JSON path, entitlement, …)
+  // is rewritten even if a caller passed a plain string.
+  errorMessage.value = formatOid4vciReceiveError(message);
   clearAuthCodeContinuation();
   mobileDeepLink.value = buildMobileDeepLink();
 }
@@ -179,7 +181,7 @@ onMounted(async () => {
     clearAuthCodeContinuation();
     await navigateTo(`/wallet/${continuation.walletId}`);
   } catch (e: any) {
-    fail(formatOid4vciReceiveError(e));
+    fail(e);
   }
 });
 </script>

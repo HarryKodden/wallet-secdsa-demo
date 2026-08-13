@@ -17,6 +17,7 @@
           </p>
           <p v-else-if="grantType === 'pre-authorized_code'" class="mt-1 text-sm text-gray-600">
             Grant: <strong>pre-authorized_code</strong>
+            <span v-if="txCodeRequired"> — issuer transaction code required</span>
           </p>
         </div>
       </template>
@@ -38,8 +39,9 @@
                 : 'bg-green-600 hover:scale-105 hover:animate-pulse hover:bg-green-700 focus:animate-none focus:outline-green-700',
             ]"
             :disabled="
-              (selectedDid === null || selectedDid === undefined) &&
-              !(dids && dids?.length === 1)
+              ((selectedDid === null || selectedDid === undefined) &&
+                !(dids && dids?.length === 1)) ||
+              (txCodeRequired && !String(txCode || '').trim())
             "
             :failed="failed"
             :handler="acceptCredential"
@@ -74,6 +76,31 @@
         <code class="text-xs">{{ oid4vciRedirectUri }}</code>
         (must be registered for client
         <code class="text-xs">OID4VCI_CLIENT_ID</code>).
+      </div>
+
+      <div
+        v-if="txCodeRequired && grantType !== 'authorization_code'"
+        class="mb-4 rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-950 ring-1 ring-amber-200"
+      >
+        <label class="block font-medium text-amber-950" for="oid4vci-tx-code">
+          Issuer transaction code
+        </label>
+        <p class="mt-1 text-amber-900/90">
+          {{
+            txCodeDescription ||
+            "This pre-authorized offer requires the PIN / tx_code shown by the issuer (not your SoftHSM PIN)."
+          }}
+        </p>
+        <input
+          id="oid4vci-tx-code"
+          v-model="txCode"
+          autocomplete="one-time-code"
+          class="mt-2 w-full max-w-xs rounded-md border border-amber-300 bg-white px-3 py-2 text-base text-gray-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
+          :inputmode="txCodeInputMode === 'numeric' ? 'numeric' : 'text'"
+          :maxlength="txCodeLength && txCodeLength > 0 ? txCodeLength : undefined"
+          :placeholder="txCodeLength ? `${txCodeLength}-character code` : 'Transaction code'"
+          type="text"
+        />
       </div>
 
       <LoadingIndicator v-if="immediateAccept" class="my-6 mb-12 w-full">
@@ -288,6 +315,11 @@ const {
   groupedCredentialTypes,
   issuerHost,
   grantType,
+  txCodeRequired,
+  txCode,
+  txCodeInputMode,
+  txCodeLength,
+  txCodeDescription,
   oid4vciRedirectUri,
 } = await useIssuance(query);
 

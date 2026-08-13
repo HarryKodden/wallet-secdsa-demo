@@ -23,6 +23,19 @@ Self-contained Docker Compose demo:
 > subject to third-party terms in NOTICE. No waltid-identity fork is required
 > to build or run the stack.
 
+### Protocol baseline
+
+Pinned specs (wire format = **OID4VC 1.0**):
+
+| Spec | Link |
+|------|------|
+| OID4VCI 1.0 | https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html |
+| OID4VP 1.0 | https://openid.net/specs/openid-4-verifiable-presentations-1_0.html |
+| OAuth PAR | https://www.rfc-editor.org/rfc/rfc9126 |
+| OAuth PKCE | https://www.rfc-editor.org/rfc/rfc7636 (this wallet: **S256 only**) |
+
+**Interop profile order:** [DIIP](https://fidescommunity.github.io/DIIP/) first (published v4 text / v5 catalogs evaluated against the 1.0 wire). HAIP / EUDI are a later track — not claimed for this demo yet. Library stack: walt.id Maven **0.23.1** (+ in-repo overlays). See [docs/waltid-0.23.1-gaps.md](docs/waltid-0.23.1-gaps.md).
+
 ### Security posture (read before publishing or exposing ports)
 
 | Topic | PoC default |
@@ -176,11 +189,13 @@ To **receive** a credential in the UI:
 
 | Grant | What happens |
 |-------|----------------|
-| **pre-authorized_code** | Enter SECDSA PIN → **Accept** → credential stored (one-shot). |
-| **authorization_code** | **Continue at issuer** → sign in at the issuer AS → redirect to `/oid4vci/callback` → PIN → proof → store. |
+| **pre-authorized_code** | Enter issuer `tx_code` if required → SoftHSM PIN → **Accept** → credential stored (one-shot). |
+| **authorization_code** | **Continue at issuer** (PKCE S256; PAR when required) → sign in at the issuer AS → redirect to `/oid4vci/callback` → PIN → proof → store. |
 
 OAuth `state` (CSRF) is stored in the browser across the AS redirect; OID4VCI `issuer_state`
 from the offer is forwarded by wallet-api2 when building the authorization URL.
+Auth requests include `authorization_details` (credential configuration id) and `scope`
+(`openid` plus the configuration’s advertised `scope` when present).
 
 Configure the OID4VCI public client in `.env` (separate from wallet **login** OIDC):
 
@@ -193,9 +208,11 @@ Register that `redirect_uri` and client id at the credential issuer’s authoriz
 For **as.dev.eduid.nl**, allow at least scope **`openid`** on the client (optionally `profile`,
 `email`, or eduID scopes such as `eduid.nl/eduid`). Do **not** use `wallet:read` /
 `wallet:write` / `api:read` — those are unrelated demo scopes; OID4VCI names the credential
-via `authorization_details`, not those scopes.
+via `authorization_details` (and the configuration’s own `scope` when the issuer advertises one).
 
 To **present** a credential (OID4VP), open or scan a presentation request the same way.
+Verifier `client_id` may be a bare DID (DIIP) or `decentralized_identifier:did:…`.
+DCQL `trusted_authorities` is enforced against the credential issuer.
 
 ### Local lab (issuer-api2 / verifier-api2)
 
@@ -250,9 +267,11 @@ For end-to-end testing against an external issuer (eduID-style auth-code, etc.):
 Pick an issue action on the sandbox page, then bring the resulting offer (QR or URL) into
 this demo’s **Scan** flow as an authenticated user.
 
-- **Pre-authorized** cards → Accept in the wallet (single-use codes — request a fresh offer if retrying).
+- **Pre-authorized** cards → Accept in the wallet (enter issuer `tx_code` / PIN when the card
+  requires it — distinct from SoftHSM PIN; single-use codes — request a fresh offer if retrying).
 - **Authorization-code** cards (e.g. eduID) → Continue at issuer; ensure the sandbox AS allows
   `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (or point those env vars at a client the sandbox already knows).
+  This wallet always uses **PKCE S256**.
 
 **`credential_request_denied: No entitlement found`:** the sandbox issuer rejected the account for that
 card (entitlement), not the wallet’s proof. Use an entitled sandbox user, or smoke Scan with a

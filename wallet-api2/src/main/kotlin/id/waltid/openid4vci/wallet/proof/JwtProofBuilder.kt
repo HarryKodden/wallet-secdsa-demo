@@ -29,22 +29,22 @@ class JwtProofBuilder : ProofOfPossessionBuilder {
     /**
      * Builds a JWT proof of possession
      * 
-     * The JWT contains:
-     * - typ: "openid4vci-proof+jwt" (header)
-     * - kid or jwk (header, depending on binding method)
-     * - iss: client_id (conditionally required for authorization_code; omit for anonymous pre-auth)
-     * - aud: credential issuer URL
-     * - iat: current timestamp
-     * - nonce: c_nonce from issuer, when one was obtained
-     *
-     * @param key The cryptographic key to use for signing
-     * @param audience The credential issuer URL
-     * @param nonce The optional c_nonce obtained from the issuer's Nonce Endpoint
-     * @param keyId Optional key identifier (DID) for kid header
-     * @param includeJwk Whether to include the public key as JWK in the header
-     * @param clientId OID4VCI client_id; when set, written as JWT `iss` (required by many ASs for auth-code)
-     * @return Proofs object containing the JWT proof
-     */
+ * The JWT contains:
+ * - typ: "openid4vci-proof+jwt" (header)
+ * - kid or jwk (header, depending on binding method)
+ * - iss: holder DID (DIIP default) or client_id when the AS requires it for authorization_code
+ * - aud: credential issuer URL
+ * - iat: current timestamp
+ * - nonce: c_nonce from issuer, when one was obtained
+ *
+ * @param key The cryptographic key to use for signing
+ * @param audience The credential issuer URL
+ * @param nonce The optional c_nonce obtained from the issuer's Nonce Endpoint
+ * @param keyId Optional key identifier (DID URL / authentication VM id) for kid header
+ * @param includeJwk Whether to include the public key as JWK in the header
+ * @param clientId Value written as JWT `iss` when non-null (DID or OID4VCI client_id)
+ * @return Proofs object containing the JWT proof
+ */
     suspend fun buildJwtProof(
         key: Key,
         audience: String,

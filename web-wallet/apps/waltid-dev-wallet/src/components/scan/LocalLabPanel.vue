@@ -161,6 +161,17 @@
           Builds a DCQL request that matches the selected credential, then starts
           OpenID4VP against verifier-api2.
         </p>
+        <label class="block text-xs font-medium text-gray-700" for="lab-flow">
+          Device flow
+        </label>
+        <select
+          id="lab-flow"
+          v-model="verifyFlowType"
+          class="block w-full rounded-md border-0 px-3 py-2 text-sm text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-emerald-600"
+        >
+          <option value="cross_device">Cross-device (QR / second device)</option>
+          <option value="same_device">Same-device (redirect back here)</option>
+        </select>
         <button
           :disabled="!selectedCredentialId || verifying"
           class="inline-flex w-full items-center justify-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-400"
@@ -229,6 +240,7 @@ const labConfig = ref<LabConfig | null>(null);
 const profileId = ref("openBadgeCredential");
 const selectedCredentialId = ref("");
 const authMethod = ref<"PRE_AUTHORIZED" | "AUTHORIZED">("PRE_AUTHORIZED");
+const verifyFlowType = ref<"cross_device" | "same_device">("cross_device");
 const loadingProfiles = ref(true);
 const loadingCredentials = ref(true);
 const issuing = ref(false);
@@ -422,6 +434,7 @@ async function verify() {
         queryId: `wallet_${selected.id}`.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64),
         successRedirectUri: `${returnBase}?presented=1`,
         errorRedirectUri: `${returnBase}?presented=0`,
+        flowType: verifyFlowType.value,
       },
     });
     const requestUrl = result?.requestUrl;

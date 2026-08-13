@@ -110,6 +110,8 @@ export type LabCredentialQuery = {
     /** Optional post-present return URL (verifier success_redirect_uri). */
     successRedirectUri?: string;
     errorRedirectUri?: string;
+    /** Lab verifier flow: `cross_device` (default) or `same_device`. */
+    flowType?: "cross_device" | "same_device";
 };
 
 export function buildCrossDeviceSessionBody(query: LabCredentialQuery) {
@@ -156,8 +158,11 @@ export function buildCrossDeviceSessionBody(query: LabCredentialQuery) {
         meta = { type_values: typeValues };
     }
 
+    const flowType =
+        query.flowType === "same_device" ? "same_device" : "cross_device";
+
     const body: Record<string, unknown> = {
-        flow_type: "cross_device",
+        flow_type: flowType,
         core_flow: {
             dcql_query: {
                 credentials: [

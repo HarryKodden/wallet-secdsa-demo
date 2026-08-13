@@ -284,7 +284,7 @@
             </div>
           </div>
           <div
-            v-if="credential['format'] === 'vc+sd-jwt'"
+            v-if="isSdJwtFormat"
             class="md:flex text-gray-500 mb-3 md:mb-1"
           >
             <div class="min-w-[19vw]">KeyID</div>
@@ -504,6 +504,11 @@ onMounted(() => {
 const credential = computed(() =>
   credentialRaw.value ? normalizeWalletCredential(credentialRaw.value) : null,
 );
+
+const isSdJwtFormat = computed(() => {
+  const f = String(credential.value?.format ?? "");
+  return f === "vc+sd-jwt" || f === "dc+sd-jwt" || /sd-jwt/i.test(f);
+});
 
 const {
   jwtJson,
