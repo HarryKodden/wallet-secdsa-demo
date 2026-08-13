@@ -65,10 +65,11 @@
           </table>
         </div>
         <p class="mt-3 text-sm text-gray-700">
-          SoftHSM keeps <strong>one user key</strong> per lab account. If another wallet regenerates
-          a key for <code>citizen-42</code>, older DIDs can go stale and issuers reject proofs with
-          <code>invalid_request</code>. Delete the stale key + DID, regenerate, create a new
-          <code>did:jwk</code>, then use a <strong>fresh</strong> offer.
+          SoftHSM keeps <strong>one user key</strong> per lab account. “Generate key” usually
+          re-imports that same SoftHSM key — DIDs stay <strong>WSCA OK</strong> (not stale).
+          Only a SoftHSM wipe/restart rotates the key; then old DIDs show stale, credentials
+          get a red <strong>Stale SoftHSM</strong> ribbon, recreate
+          <code>did:jwk</code>, and use a <strong>fresh</strong> offer (old VCs cannot be proven).
         </p>
       </section>
 
@@ -89,7 +90,8 @@
       <section class="mt-8 mb-10">
         <h2 class="text-lg font-semibold text-gray-900">Troubleshooting</h2>
         <ul class="mt-2 list-disc space-y-2 pl-5 text-sm text-gray-700">
-          <li><code>invalid_request</code> on Accept → stale SoftHSM key/DID or burned single-use offer.</li>
+          <li><code>invalid_proof</code> on Accept → SoftHSM unlocked? DID must match the live SoftHSM key (WSCA OK). Use a fresh offer after key/DID repair.</li>
+          <li><code>invalid_request</code> / burned offer → single-use pre-auth code already consumed; mint a new offer.</li>
           <li>PIN keeps failing → wrong PIN, or SECDSA lab not running (<code>docker compose ps</code>).</li>
           <li>Empty keys after restart → memory WSCD wiped; regenerate key + DID.</li>
         </ul>

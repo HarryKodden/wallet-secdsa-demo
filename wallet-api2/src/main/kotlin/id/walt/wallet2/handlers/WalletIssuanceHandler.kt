@@ -454,7 +454,8 @@ object WalletIssuanceHandler {
      * Builds a proof JWT.
      *
      * - DID binding: `kid` from holder DID `authentication` (DIIP); `iss` = DID by default,
-     *   or [clientId] when [preferClientIdAsIss] (auth-code ASs that require `iss=client_id`).
+     *   or [clientId] when [preferClientIdAsIss] (OID4VCI / walt.id issuers that require
+     *   proof `iss` to match the access token `client_id`, including pre-authorized).
      * - Otherwise: embed JWK in the header.
      */
     private suspend fun JwtProofBuilder.buildProof(
@@ -537,9 +538,28 @@ object WalletIssuanceHandler {
         httpClient: HttpClient,
         onDeferredTransactionId: suspend (credentialConfigurationId: String, transactionId: String) -> Unit,
     ): Flow<StoredCredential> = channelFlow {
-        val key = wallet.resolveKey(request.key, request.keyId)
-            ?: error("No key available: wallet has no keyStores, no staticKey, no inline key, and no keyId was specified")
-        val did = request.did ?: wallet.defaultDid()
+        val key: id.walt.crypto.keys.Key
+        val did: String?
+        if (request.key != null) {
+            key = wallet.resolveKey(request.key, request.keyId)
+                ?: error("Inline key could not be resolved")
+            did = when {
+                !request.did.isNullOrBlank() &&
+                    id.walt.wallet2.holders.HolderProofBinding.didMatchesKey(request.did, key) ->
+                    request.did
+                else ->
+                    id.walt.wallet2.holders.HolderProofBinding.findDidMatchingKey(wallet, key)
+                        ?: request.did
+            }
+        } else {
+            val binding = id.walt.wallet2.holders.HolderProofBinding.resolve(
+                wallet = wallet,
+                requestedDid = request.did,
+                requestedKeyId = request.keyId,
+            )
+            key = binding.key
+            did = binding.did
+        }
 
         val clientConfig = ClientConfiguration(
             clientId = request.clientId,
@@ -613,13 +633,15 @@ object WalletIssuanceHandler {
                             offeredCredential.configuration.cryptographicBindingMethodsSupported
                         )
                         if (did != null && !preferJwkBinding) {
+                            // walt.id issuer-api2 rejects proofs whose `iss` ≠ access-token client_id
+                            // ("Credential proof issuer claim must match the access token client_id").
                             proofBuilder.buildProof(
                                 key = key,
                                 issuer = offer.credentialIssuer,
                                 nonce = nonce,
                                 did = did,
                                 clientId = request.clientId,
-                                preferClientIdAsIss = false,
+                                preferClientIdAsIss = request.clientId.isNotBlank(),
                             ).jwt?.firstOrNull()
                         } else {
                             proofBuilder.buildJwtProof(

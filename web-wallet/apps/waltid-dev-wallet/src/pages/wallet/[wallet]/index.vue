@@ -68,7 +68,11 @@
                 encodeURIComponent(credential.id)
               "
             >
-              <VerifiableCredentialCard :credential="credential" />
+              <VerifiableCredentialCard
+                :credential="credential"
+                :stale-binding="isStaleCredential(credential.id)"
+                :stale-reason="staleReason(credential.id)"
+              />
             </NuxtLink>
           </li>
         </ul>
@@ -77,7 +81,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import {PlusIcon} from "@heroicons/vue/24/outline";
 import WalletPageHeader from "@waltid-web-wallet/components/WalletPageHeader.vue";
 import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
@@ -86,12 +90,19 @@ import {useCurrentWallet} from "@waltid-web-wallet/composables/accountWallet.ts"
 import VerifiableCredentialCard from "@waltid-web-wallet/components/credentials/VerifiableCredentialCard.vue";
 import AuthCodePendingBanner from "@waltid-web-wallet/components/issuance/AuthCodePendingBanner.vue";
 import {fetchNormalizedCredentials} from "@waltid-web-wallet/composables/credential.ts";
+import {
+  credentialBindingById,
+  fetchSecdsaStatus,
+  type SecdsaStatusResponse,
+} from "@waltid-web-wallet/composables/secdsaStatus.ts";
+import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 
 const config = useRuntimeConfig();
 
 const route = useRoute();
 const router = useRouter();
 const currentWallet = useCurrentWallet();
+const {defaultAccountId} = useSecdsaPin();
 
 const walletId = computed(
   () => currentWallet.value ?? route.params.wallet ?? "",
@@ -125,13 +136,38 @@ const {
   },
 );
 
+const secdsaStatus = ref<SecdsaStatusResponse | null>(null);
+const bindingById = computed(() => credentialBindingById(secdsaStatus.value));
+
+function isStaleCredential(id: string): boolean {
+  return bindingById.value.get(id)?.valid === false;
+}
+
+function staleReason(id: string): string {
+  return bindingById.value.get(id)?.reason ?? "";
+}
+
+async function refreshSecdsaStatus() {
+  const id = walletId.value;
+  if (!id) {
+    secdsaStatus.value = null;
+    return;
+  }
+  secdsaStatus.value = await fetchSecdsaStatus(id, defaultAccountId());
+}
+
 onMounted(() => {
   refresh();
+  refreshSecdsaStatus();
   if (route.query.presented != null) {
     const nextQuery = { ...route.query };
     delete nextQuery.presented;
     router.replace({ query: nextQuery });
   }
+});
+
+watch(walletId, () => {
+  refreshSecdsaStatus();
 });
 
 useHead({

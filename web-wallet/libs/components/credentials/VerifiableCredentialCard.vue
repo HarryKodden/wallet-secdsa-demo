@@ -2,12 +2,20 @@
     <div
         ref="vcCardDiv"
         :class="{
-            'p-6 rounded-2xl shadow-2xl sm:shadow-lg h-full text-white': true,
+            'relative p-6 rounded-2xl shadow-2xl sm:shadow-lg h-full text-white overflow-hidden': true,
             'lg:w-[400px]': isDetailView,
             'bg-gradient-to-br from-[#0573F0] to-[#03449E] border-t-white border-t-[0.5px]': isNotExpired,
             'bg-[#7B8794]': !isNotExpired,
         }"
     >
+        <div
+            v-if="staleBinding"
+            class="pointer-events-none absolute -right-8 top-4 rotate-45 bg-red-600 px-10 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-md"
+            :title="staleReason || 'Bound to wiped SoftHSM key'"
+        >
+            Stale SoftHSM
+        </div>
+
         <div class="flex justify-end" v-if="!isNotExpired">
             <div class="text-black bg-[#CBD2D9] px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide">
                 Expired
@@ -65,6 +73,17 @@ const props = defineProps({
         type: Boolean,
         required: false,
         default: false,
+    },
+    /** Subject DID no longer matches live SoftHSM (wiped/rotated key). */
+    staleBinding: {
+        type: Boolean,
+        required: false,
+        default: false,
+    },
+    staleReason: {
+        type: String,
+        required: false,
+        default: "",
     },
 });
 

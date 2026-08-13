@@ -112,9 +112,17 @@ export function formatOid4vciReceiveError(
     }
 
     if (/invalid_proof/i.test(text)) {
+        if (/issuer claim must match|access token client_id/i.test(text)) {
+            return (
+                `${text}\n\nThe issuer requires proof JWT iss to equal the OAuth client_id used at the token endpoint. ` +
+                `This is a wallet/issuer config issue (not SoftHSM). Retry with a fresh offer after updating the wallet.`
+            );
+        }
         return (
             `${text}\n\nUsually SoftHSM was not unlocked, or the proof key/DID is stale. ` +
-            `Unlock with the SECDSA PIN, or regenerate key + did:jwk on this wallet and retry with a fresh offer.`
+            `Unlock with the SECDSA PIN. Confirm the DID badge is WSCA OK (matches SoftHSM). ` +
+            `If you wiped SoftHSM: regenerate key, recreate did:jwk, then retry with a fresh offer.\n` +
+            `Retry with a fresh offer if the code was already consumed.`
         );
     }
 

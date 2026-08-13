@@ -8,33 +8,24 @@
     </div>
     <div v-else>
       <div class="flex justify-center items-center my-10">
-        <!--                <div class="bg-white p-6 rounded-2xl shadow-2xl h-full w-[350px]">
-                                    <div class="flex justify-end">
-                                        <div
-                                            :class="jwtJson?.expirationDate ? (new Date(jwtJson?.expirationDate).getTime() > new Date().getTime() ? 'bg-cyan-50' : 'bg-red-50') : 'bg-cyan-50'"
-                                            class="rounded-lg px-3 mb-2"
-                                        >
-                                            <div
-                                                :class="jwtJson?.expirationDate ? (new Date(jwtJson?.expirationDate).getTime() > new Date().getTime() ? 'text-cyan-900' : 'text-orange-900') : 'text-cyan-900'"
-                                            >
-                                                {{ jwtJson?.expirationDate ? (new Date(jwtJson?.expirationDate).getTime() > new Date().getTime() ? "Valid" : "Expired") : "Valid" }}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <h2 class="text-2xl font-bold mb-2 text-gray-900 bold mb-8">
-                                        {{ jwtJson?.type[jwtJson?.type.length - 1].replace(/([a-z0-9])([A-Z])/g, "$1 $2") }}
-                                    </h2>
-                                    <div v-if="jwtJson?.issuer" class="flex items-center">
-                                        <img :src="jwtJson?.issuer?.image?.id ? jwtJson?.issuer?.image?.id : jwtJson?.issuer?.image" class="w-12" />
-                                        <div class="text-natural-600 ml-2 w-32">
-                                            {{ jwtJson?.issuer?.name }}
-                                        </div>
-                                    </div>
-                                </div>-->
         <VerifiableCredentialCard
           :credential="credential"
           :isDetailView="true"
+          :stale-binding="staleBinding"
+          :stale-reason="staleReason"
         />
+      </div>
+      <div
+        v-if="staleBinding"
+        class="mx-7 mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-950"
+        role="status"
+      >
+        <p class="font-semibold">Bound to a wiped SoftHSM key</p>
+        <p class="mt-1">
+          {{ staleReason || "This credential’s subject DID no longer matches the live SoftHSM key." }}
+          Presentations will fail until you delete it and re-receive with a fresh
+          <code class="rounded bg-red-100 px-1">did:jwk</code> / offer.
+        </p>
       </div>
       <div class="px-7 py-1">
         <div v-if="jwtJson?.type">
@@ -473,15 +464,23 @@ import CenterMain from "@waltid-web-wallet/components/CenterMain.vue";
 import {JSONPath} from "jsonpath-plus";
 import QrcodeVue from "qrcode.vue";
 import {computed, ref} from "vue";
+import {
+  credentialBindingById,
+  fetchSecdsaStatus,
+  type SecdsaStatusResponse,
+} from "@waltid-web-wallet/composables/secdsaStatus.ts";
+import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 
 const route = useRoute();
 const credentialId = Array.isArray(route.params.credentialId)
   ? route.params.credentialId[0]
   : String(route.params.credentialId ?? "");
 const currentWallet = useCurrentWallet();
+const {defaultAccountId} = useSecdsaPin();
 
 const showCredentialJson = ref(false);
 const showCredentialManifest = ref(false);
+const secdsaStatus = ref<SecdsaStatusResponse | null>(null);
 
 const {
   data: credentialRaw,
@@ -497,13 +496,25 @@ const {
   {watch: [currentWallet]},
 );
 
-onMounted(() => {
+onMounted(async () => {
   refresh();
+  if (currentWallet.value) {
+    secdsaStatus.value = await fetchSecdsaStatus(
+      String(currentWallet.value),
+      defaultAccountId(),
+    );
+  }
 });
 
 const credential = computed(() =>
   credentialRaw.value ? normalizeWalletCredential(credentialRaw.value) : null,
 );
+
+const binding = computed(() =>
+  credentialBindingById(secdsaStatus.value).get(credentialId),
+);
+const staleBinding = computed(() => binding.value?.valid === false);
+const staleReason = computed(() => binding.value?.reason ?? "");
 
 const isSdJwtFormat = computed(() => {
   const f = String(credential.value?.format ?? "");

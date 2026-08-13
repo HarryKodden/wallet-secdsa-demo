@@ -178,24 +178,40 @@ interface WalletResolver {
     /**
      * Persists updated [defaultKeyId] / [defaultDidId] for an existing wallet.
      *
-     * For in-memory stores the live [Wallet] object is replaced with a copy containing the new
-     * defaults (via [WalletStore.loadWallet]/[WalletStore.saveWallet]). For persistent stores the
-     * descriptor is loaded, updated, and saved.
+     * Pass a non-null id to set that default. Pass [clearDefaultKey] / [clearDefaultDid]
+     * to clear. Omitting both leaves the existing value unchanged.
+     * (`null` alone used to mean "keep" and made deletes unable to clear a stale default.)
      */
-    suspend fun setWalletDefaults(walletId: String, defaultKeyId: String?, defaultDidId: String?) {
+    suspend fun setWalletDefaults(
+        walletId: String,
+        defaultKeyId: String? = null,
+        defaultDidId: String? = null,
+        clearDefaultKey: Boolean = false,
+        clearDefaultDid: Boolean = false,
+    ) {
+        fun merge(current: String?, next: String?, clear: Boolean): String? = when {
+            clear -> null
+            next != null -> next
+            else -> current
+        }
+
         val liveWallet = walletStore.loadWallet(walletId)
         if (liveWallet != null) {
-            walletStore.saveWallet(liveWallet.copy(
-                defaultKeyId = defaultKeyId ?: liveWallet.defaultKeyId,
-                defaultDidId = defaultDidId ?: liveWallet.defaultDidId,
-            ))
+            walletStore.saveWallet(
+                liveWallet.copy(
+                    defaultKeyId = merge(liveWallet.defaultKeyId, defaultKeyId, clearDefaultKey),
+                    defaultDidId = merge(liveWallet.defaultDidId, defaultDidId, clearDefaultDid),
+                ),
+            )
             return
         }
         val descriptor = walletStore.loadDescriptor(walletId) ?: return
-        walletStore.saveDescriptor(descriptor.copy(
-            defaultKeyId = defaultKeyId ?: descriptor.defaultKeyId,
-            defaultDidId = defaultDidId ?: descriptor.defaultDidId,
-        ))
+        walletStore.saveDescriptor(
+            descriptor.copy(
+                defaultKeyId = merge(descriptor.defaultKeyId, defaultKeyId, clearDefaultKey),
+                defaultDidId = merge(descriptor.defaultDidId, defaultDidId, clearDefaultDid),
+            ),
+        )
     }
 
     /**

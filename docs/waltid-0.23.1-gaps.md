@@ -12,7 +12,7 @@ Legend: **Stock** = upstream jar · **Overlay** = this repo · **Gap** = not cla
 |------------------------|--------|-------|
 | Metadata discovery (issuer + AS) | Overlay | Soft-fail configs; token-only AS; legacy `vc+sd-jwt` alias |
 | Separate AS vs credential issuer | Stock + Overlay | `authorization_servers` + fallback |
-| Nonce + JWT PoP | Overlay | `JwtProofBuilder`; `kid` from DID `authentication`; `iss` = DID (pre-auth) or `client_id` (auth-code AS) |
+| Nonce + JWT PoP | Overlay | `JwtProofBuilder`; `kid` from DID `authentication`; `iss` = `client_id` when present (walt.id issuer requires match to access-token `client_id`) |
 | PKCE S256 | Overlay | Forced; plain-only AS rejected |
 | PAR when required | Overlay | `WalletIssuanceHandler` |
 | `authorization_details` + `scope` | Overlay | Always auth_details; scope = `openid` + config scope |
@@ -54,7 +54,7 @@ Legend: **Stock** = upstream jar · **Overlay** = this repo · **Gap** = not cla
 ## Upstream notes
 
 - Prefer contributing format/`dc+sd-jwt` + DCQL W3C-meta fixes upstream so overlays shrink.
-- Auth-code `iss=client_id` vs DIIP `iss=did` remains dual-mode by design until ASs align.
+- Proof JWT `iss`: walt.id issuer-api2 requires `iss` = access-token `client_id` for both pre-auth and auth-code; DIIP `iss=did` remains available when `clientId` is blank.
 - Batch issuance and true Immediate Issuance need library + product work (P2+).
 
 Last reviewed with P1 close-out in this repo.

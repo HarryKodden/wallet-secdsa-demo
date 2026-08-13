@@ -9,6 +9,7 @@ import id.walt.mdoc.dataelement.json.toJsonElement
 import id.walt.openid4vci.errors.CredentialError
 import id.walt.wallet2.data.*
 import id.walt.wallet2.handlers.*
+import id.walt.wallet2.holders.HolderProofBinding
 import id.walt.verifier.openid.transactiondata.TransactionDataTypeRegistry
 import id.walt.wallet2.server.Oid4vcProtocolErrors
 import id.walt.wallet2.server.Oid4vcProtocolErrors.respondProtocolFailure
@@ -421,7 +422,19 @@ object Wallet2RouteHandler {
                     val req = Json.decodeFromJsonElement<KeyGenerationRequest>(json)
                     val key = KeyManager.createKey(req)
                     val keyTypeName = req.keyType.name
+                    // SoftHSM is one user key per account (stable id secdsa:{account}:1).
+                    // Replace any existing row so metadata tracks the live SoftHSM pub.
+                    val existingId = key.getKeyId()
+                    if (wallet.findKey(existingId) != null) {
+                        store.removeKey(existingId)
+                    }
                     val keyId = store.addKey(key)
+                    resolver.setWalletDefaults(wallet.id, defaultKeyId = keyId)
+                    // Stale DIDs (wrong SoftHSM pub) must not remain the wallet default.
+                    val defaultDid = wallet.defaultDidId
+                    if (defaultDid != null && !HolderProofBinding.didMatchesKey(defaultDid, key)) {
+                        resolver.setWalletDefaults(wallet.id, clearDefaultDid = true)
+                    }
                     Wallet2EventLog.append(
                         walletId = wallet.id,
                         event = "Key",
@@ -606,7 +619,7 @@ object Wallet2RouteHandler {
                         val wallet = call.resolveOrRespond(resolver, getAccountId) ?: return@put
                         val keyId = call.parameters["keyId"]!!
                         require(wallet.findKey(keyId) != null) { "Key '$keyId' not found in wallet '${wallet.id}'" }
-                        resolver.setWalletDefaults(wallet.id, defaultKeyId = keyId, defaultDidId = null)
+                        resolver.setWalletDefaults(wallet.id, defaultKeyId = keyId)
                         call.respond(HttpStatusCode.NoContent)
                     }
                 }
@@ -621,10 +634,18 @@ object Wallet2RouteHandler {
                 get("", {
                     summary = "List DIDs"
                     request { pathParameter<String>("walletId") }
-                    response { HttpStatusCode.OK to { body<List<WalletDidEntry>>() } }
+                    response { HttpStatusCode.OK to { body<List<JsonObject>>() } }
                 }) {
                     val wallet = call.resolveOrRespond(resolver, getAccountId) ?: return@get
-                    call.respond(wallet.didStore?.listDids()?.toList() ?: emptyList<WalletDidEntry>())
+                    val defaultDid = wallet.defaultDid()
+                    val entries = wallet.didStore?.listDids()?.toList().orEmpty().map { entry ->
+                        buildJsonObject {
+                            put("did", entry.did)
+                            put("document", entry.document)
+                            put("default", entry.did == defaultDid)
+                        }
+                    }
+                    call.respond(entries)
                 }
 
                 delete("", {
@@ -642,6 +663,9 @@ object Wallet2RouteHandler {
                         ?: return@delete call.respond(HttpStatusCode.BadRequest, "Missing query parameter 'did'")
                     val removed = wallet.didStore?.removeDid(did) ?: false
                     if (removed) {
+                        if (wallet.defaultDidId == did) {
+                            resolver.setWalletDefaults(wallet.id, clearDefaultDid = true)
+                        }
                         Wallet2EventLog.append(
                             walletId = wallet.id,
                             event = "DID",
@@ -693,6 +717,11 @@ object Wallet2RouteHandler {
                         }.getOrElse { JsonObject(emptyMap()) }
                     )
                     didStore.addDid(entry)
+                    resolver.setWalletDefaults(
+                        walletId = wallet.id,
+                        defaultDidId = entry.did,
+                        defaultKeyId = key.getKeyId(),
+                    )
                     Wallet2EventLog.append(
                         walletId = wallet.id,
                         event = "DID",
@@ -761,6 +790,9 @@ object Wallet2RouteHandler {
                             ?: return@delete call.respond(HttpStatusCode.BadRequest, "Missing DID")
                         val removed = wallet.didStore?.removeDid(did) ?: false
                         if (removed) {
+                            if (wallet.defaultDidId == did) {
+                                resolver.setWalletDefaults(wallet.id, clearDefaultDid = true)
+                            }
                             Wallet2EventLog.append(
                                 walletId = wallet.id,
                                 event = "DID",
@@ -783,7 +815,7 @@ object Wallet2RouteHandler {
                         val wallet = call.resolveOrRespond(resolver, getAccountId) ?: return@put
                         val did = call.parameters["did"]!!
                         require(wallet.didStore?.getDid(did) != null) { "DID '$did' not found in wallet '${wallet.id}'" }
-                        resolver.setWalletDefaults(wallet.id, defaultKeyId = null, defaultDidId = did)
+                        resolver.setWalletDefaults(wallet.id, defaultDidId = did)
                         call.respond(HttpStatusCode.NoContent)
                     }
                 }

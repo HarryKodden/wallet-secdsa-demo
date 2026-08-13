@@ -2,9 +2,17 @@
     <CenterMain>
         <div class="mt-1 border p-4 rounded-2xl">
             <p class="text-base font-semibold">Generate key</p>
-            <p class="mt-1 text-sm text-gray-600">
-              This demo wallet only creates SECDSA SoftHSM keys (other KMS backends are disabled).
-            </p>
+                <p class="mt-1 text-sm text-gray-600">
+                  This demo wallet only creates SECDSA SoftHSM keys (other KMS backends are disabled).
+                </p>
+                <p class="mt-2 text-sm text-amber-900 bg-amber-50 ring-1 ring-amber-200 rounded-md px-3 py-2">
+                  SoftHSM keeps <strong>one</strong> user key per account. Generate usually
+                  <strong>re-imports</strong> that key (same
+                  <code class="rounded bg-white/80 px-1">secdsa:&lt;account&gt;:1</code>) —
+                  existing DIDs stay <em>WSCA OK</em>, they are not stale.
+                  After a SoftHSM wipe/restart, Generate mints a new key; then delete stale DIDs,
+                  create a fresh <code>did:jwk</code>, and use a <strong>new</strong> credential offer.
+                </p>
             <div>
                 <div
                     class="mt-1 space-y-8 border-gray-900/10 pb-12 sm:space-y-0 sm:divide-y sm:divide-gray-900/10 sm:border-t sm:pb-0">
@@ -180,6 +188,9 @@ async function generateKey() {
                 "Content-Type": "application/json",
             },
         });
+        // Bust IndexedDB WSCA status cache so DID/key badges refresh immediately.
+        const {fetchSecdsaStatus} = await import("@waltid-web-wallet/composables/secdsaStatus.ts");
+        await fetchSecdsaStatus(currentWallet.value, accountId, {force: true});
     } catch (e: any) {
         console.error("Error generating key:", e);
         const detail =

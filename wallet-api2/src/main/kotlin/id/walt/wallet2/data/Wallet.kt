@@ -140,11 +140,15 @@ data class Wallet(
 
     /**
      * Returns the default DID.
-     * If [defaultDidId] is set, that DID is returned.
-     * Falls back to the first DID in the store, then to [staticDid].
+     * If [defaultDidId] is set **and still present in the DID store**, that DID is returned.
+     * Falls back to the store default, then to [staticDid].
+     *
+     * Stale [defaultDidId] values (deleted DID, SoftHSM re-key) are ignored so OID4VCI
+     * proofs do not bind a public key SoftHSM can no longer sign for.
      */
-    suspend fun defaultDid(): String? =
-        defaultDidId
-            ?: didStore?.getDefaultDid()
-            ?: staticDid
+    suspend fun defaultDid(): String? {
+        val preferred = defaultDidId
+        if (preferred != null && didStore?.getDid(preferred) != null) return preferred
+        return didStore?.getDefaultDid() ?: staticDid
+    }
 }

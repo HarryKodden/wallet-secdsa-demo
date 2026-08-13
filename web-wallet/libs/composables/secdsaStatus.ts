@@ -13,6 +13,13 @@ export type SecdsaDidValidity = {
     reason: string;
 };
 
+export type SecdsaCredentialValidity = {
+    credentialId: string;
+    subject?: string | null;
+    valid: boolean | null;
+    reason: string;
+};
+
 export type SecdsaStatusResponse = {
     reachable: boolean;
     accountId: string;
@@ -24,6 +31,7 @@ export type SecdsaStatusResponse = {
     wscaPublicKeyHex?: string | null;
     keys?: SecdsaKeyValidity[];
     dids?: SecdsaDidValidity[];
+    credentials?: SecdsaCredentialValidity[];
     error?: string | null;
 };
 
@@ -89,4 +97,15 @@ export function validityLabel(valid: boolean | null | undefined): string {
     if (valid === true) return "WSCA OK";
     if (valid === false) return "WSCA stale";
     return "n/a";
+}
+
+/** Map credentialId → SoftHSM binding validity from a status payload. */
+export function credentialBindingById(
+    status: SecdsaStatusResponse | null | undefined,
+): Map<string, SecdsaCredentialValidity> {
+    const map = new Map<string, SecdsaCredentialValidity>();
+    for (const c of status?.credentials ?? []) {
+        map.set(c.credentialId, c);
+    }
+    return map;
 }

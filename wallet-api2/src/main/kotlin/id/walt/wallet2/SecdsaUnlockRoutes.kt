@@ -9,6 +9,7 @@ import io.ktor.http.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -43,6 +44,15 @@ data class SecdsaDidValidity(
 )
 
 @Serializable
+data class SecdsaCredentialValidity(
+    val credentialId: String,
+    val subject: String? = null,
+    /** true = subject matches live SoftHSM; false = wiped/rotated key; null = not comparable */
+    val valid: Boolean?,
+    val reason: String,
+)
+
+@Serializable
 data class SecdsaStatusResponse(
     val reachable: Boolean,
     val accountId: String,
@@ -58,6 +68,7 @@ data class SecdsaStatusResponse(
     val wscaPublicKeyHex: String? = null,
     val keys: List<SecdsaKeyValidity> = emptyList(),
     val dids: List<SecdsaDidValidity> = emptyList(),
+    val credentials: List<SecdsaCredentialValidity> = emptyList(),
     val error: String? = null,
 )
 
@@ -103,10 +114,10 @@ fun Route.registerSecdsaUnlockRoutes(
         }
 
         get("/secdsa/status", {
-            summary = "Compare wallet SECDSA keys/DIDs to live WSCA user key"
+            summary = "Compare wallet SECDSA keys/DIDs/credentials to live WSCA user key"
             description =
                 "Cheap validity check against WSCA /api/state (userPub). No PIN. " +
-                    "Detects stale keys after memory-WSCD secdsa restarts."
+                    "Detects stale keys/DIDs/credentials after memory-WSCD secdsa restarts."
             request {
                 pathParameter<String>("walletId")
                 queryParameter<String>("accountId") { required = false }
@@ -157,6 +168,7 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
     val client = WscaClient(WscaConfig(baseUrl = wscaBaseUrl(), accountId = accountId))
     val keyInfos = wallet.listAllKeys()
     val didEntries = wallet.didStore?.listDidsAsList().orEmpty()
+    val credentialMetas = wallet.streamAllCredentials().toList().map { it.toMetadata() }
 
     if (!client.health()) {
         return SecdsaStatusResponse(
@@ -166,6 +178,9 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
             error = "WSCA unreachable at ${wscaBaseUrl()}",
             keys = keyInfos.map { SecdsaKeyValidity(it.keyId, null, "WSCA unreachable") },
             dids = didEntries.map { SecdsaDidValidity(it.did, null, "WSCA unreachable") },
+            credentials = credentialMetas.map {
+                SecdsaCredentialValidity(it.id, it.subject, null, "WSCA unreachable")
+            },
         )
     }
 
@@ -177,6 +192,9 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
             error = e.message ?: "Failed to read WSCA state",
             keys = keyInfos.map { SecdsaKeyValidity(it.keyId, null, "WSCA error") },
             dids = didEntries.map { SecdsaDidValidity(it.did, null, "WSCA error") },
+            credentials = credentialMetas.map {
+                SecdsaCredentialValidity(it.id, it.subject, null, "WSCA error")
+            },
         )
     }
 
@@ -225,6 +243,11 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
         }
     }
 
+    val didValidityById = didStatuses.associateBy { it.did }
+    val credentialStatuses = credentialMetas.map { meta ->
+        credentialValidityAgainstWsca(meta.id, meta.subject, wscaPub, snapshot.hasUserKey, didValidityById)
+    }
+
     return SecdsaStatusResponse(
         reachable = true,
         accountId = accountId,
@@ -235,6 +258,55 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
         wscaPublicKeyHex = snapshot.userPubHex,
         keys = keyStatuses,
         dids = didStatuses,
+        credentials = credentialStatuses,
+    )
+}
+
+private fun credentialValidityAgainstWsca(
+    credentialId: String,
+    subject: String?,
+    wscaPub: String?,
+    hasUserKey: Boolean,
+    didValidityById: Map<String, SecdsaDidValidity>,
+): SecdsaCredentialValidity {
+    if (subject.isNullOrBlank()) {
+        return SecdsaCredentialValidity(credentialId, null, null, "No subject DID on credential")
+    }
+    didValidityById[subject]?.let { did ->
+        return SecdsaCredentialValidity(
+            credentialId = credentialId,
+            subject = subject,
+            valid = did.valid,
+            reason = when (did.valid) {
+                true -> "Subject DID matches SoftHSM"
+                false -> "Bound to wiped/rotated SoftHSM key — re-receive after new did:jwk"
+                null -> did.reason
+            },
+        )
+    }
+    if (subject.startsWith("did:jwk:")) {
+        val pub = runCatching { didJwkToUncompressedHex(subject) }.getOrNull()?.lowercase()
+        return when {
+            pub == null ->
+                SecdsaCredentialValidity(credentialId, subject, false, "Could not decode subject did:jwk")
+            !hasUserKey || wscaPub == null ->
+                SecdsaCredentialValidity(credentialId, subject, false, "No user key in WSCA")
+            pub == wscaPub ->
+                SecdsaCredentialValidity(credentialId, subject, true, "Subject matches SoftHSM")
+            else ->
+                SecdsaCredentialValidity(
+                    credentialId,
+                    subject,
+                    false,
+                    "Bound to wiped/rotated SoftHSM key — re-receive after new did:jwk",
+                )
+        }
+    }
+    return SecdsaCredentialValidity(
+        credentialId,
+        subject,
+        null,
+        "Subject is not did:jwk — SoftHSM compare skipped",
     )
 }
 
