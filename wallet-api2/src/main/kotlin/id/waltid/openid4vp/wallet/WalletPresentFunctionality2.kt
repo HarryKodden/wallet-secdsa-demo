@@ -40,6 +40,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
+import kotlin.jvm.JvmName
 import kotlin.time.Clock
 
 
@@ -717,7 +718,13 @@ object WalletPresentFunctionality2 {
      * the wallet MUST include `transaction_data_hashes` in the KB-JWT. Each entry is the
      * base64url-encoded SHA-256 hash of the corresponding base64url-encoded transaction data
      * item as it appeared in the request. The algorithm is SHA-256 by default.
+     *
+     * JVM name must match the stock `openid4vp-wallet` module mangling: Maven jars such as
+     * [SdJwtVcPresenter] call `createKeyBindingJwt$id_walt_protocols_waltid_openid4vp_wallet`.
+     * Compiling this overlay under `waltid-wallet-api2` would otherwise emit
+     * `…$id_walt_waltid_wallet_api2` and blow up at present time with NoSuchMethodError.
      */
+    @JvmName("createKeyBindingJwt\$id_walt_protocols_waltid_openid4vp_wallet")
     internal suspend fun createKeyBindingJwt(
         disclosed: String,
         nonce: String,
