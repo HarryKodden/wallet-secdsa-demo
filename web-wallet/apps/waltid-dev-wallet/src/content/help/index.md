@@ -92,7 +92,8 @@ Paste/camera offer intake is fine when the offer itself is valid; entitlement de
 
 | Symptom | Likely cause |
 |---------|----------------|
-| Accept fails with `invalid_request` | Stale SoftHSM key/DID (see above) or burned offer |
+| Accept fails with `invalid_request` | Stale SoftHSM key/DID (see above) or burned offer — unless the message mentions a **JSON path** (see next row) |
+| Auth-code: issuer needs `given_name` / JSON path missing | IdP ID token lacks that profile claim — use an account with a full profile, or another offer; not a wallet signing bug |
 | Auth-code callback: no matching `state` | Session expired / different browser tab — restart from Scan |
 | Auth-code: `redirect_uri` / `invalid_client` | `OID4VCI_*` not registered at the issuer AS |
 | Auth-code reaches credential endpoint then `credential_request_denied` / **No entitlement found** | Sandbox account not entitled for that card — use an entitled user, or a pre-auth / freeform offer (not a wallet bug) |

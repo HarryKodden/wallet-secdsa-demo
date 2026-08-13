@@ -5,6 +5,7 @@ import {type Ref, ref, watch} from "vue";
 import {groupBy} from "./groupings.ts";
 import {useSecdsaPin} from "./secdsaPin.ts";
 import {
+    formatOid4vciReceiveError,
     resolveOid4vciClientConfig,
     startAuthCodeRedirect,
 } from "./oid4vciAuthCode.ts";
@@ -116,25 +117,7 @@ export async function useIssuance(query: any) {
     }
 
     function formatReceiveError(e: any): string {
-        let errorMessage =
-            typeof e?.data === "string" && e.data.startsWith("{")
-                ? JSON.parse(e.data)
-                : (e.data ?? e);
-        errorMessage = errorMessage?.message ?? errorMessage?.statusMessage ?? errorMessage;
-        const text = String(errorMessage);
-        if (/invalid_request/i.test(text)) {
-            return (
-                `${text} — often a stale SECDSA key/DID (SoftHSM was re-keyed). ` +
-                `Delete this wallet's SECDSA key + did:jwk, regenerate, create a new DID, then use a fresh offer.`
-            );
-        }
-        if (/redirect_uri|invalid_client|unauthorized_client/i.test(text)) {
-            return (
-                `${text} — check OID4VCI_CLIENT_ID / OID4VCI_REDIRECT_URI are registered at the issuer AS ` +
-                `(default redirect: ${oid4vciRedirectUri}).`
-            );
-        }
-        return text;
+        return formatOid4vciReceiveError(e, {oid4vciRedirectUri});
     }
 
     async function acceptCredential() {

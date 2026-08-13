@@ -52,6 +52,99 @@ export type AuthCodeContinuationResolve =
     | { ok: true; continuation: Oid4vciAuthCodeContinuation }
     | { ok: false; reason: "missing" | "expired" | "mismatch" | "invalid" };
 
+/**
+ * Turn wallet-api2 / issuer receive errors into short guidance for the UI.
+ * Prefer explaining issuer/IdP policy over raw protocol text; never invent missing claims.
+ */
+export function formatOid4vciReceiveError(
+    err: unknown,
+    opts?: {oid4vciRedirectUri?: string},
+): string {
+    const text = extractReceiveErrorText(err);
+    if (!text) return "Credential issuance failed.";
+
+    const jsonPath = text.match(/JSON path\s+(\$\.[\w.-]+)/i)?.[1];
+    if (jsonPath || /does not exist,\s*or evaluates to null/i.test(text)) {
+        const claim = (jsonPath ?? "$.…").replace(/^\$\./, "");
+        return (
+            `The issuer needs “${claim}” from your login, but your identity provider did not provide it ` +
+            `(that field was missing or null in the ID token).\n\n` +
+            `Sign in with an account that has a full profile, ask the IdP to release that claim, ` +
+            `or pick a credential offer that does not require it.\n\n` +
+            `This is not a SoftHSM / wallet signing problem.`
+        );
+    }
+
+    if (/no entitlement found/i.test(text) || /credential_request_denied/i.test(text)) {
+        return (
+            `The issuer denied this credential for your account (entitlement / policy), ` +
+            `not because of a wallet proof failure.\n\n` +
+            `Use an entitled account for that card, or try a pre-authorized / freeform offer instead.`
+        );
+    }
+
+    if (/redirect_uri|invalid_client|unauthorized_client/i.test(text)) {
+        const redirect = opts?.oid4vciRedirectUri?.trim();
+        return (
+            `${text}\n\nCheck OID4VCI_CLIENT_ID / OID4VCI_REDIRECT_URI are registered at the issuer’s ` +
+            `authorization server` +
+            (redirect ? ` (redirect: ${redirect})` : "") +
+            `.`
+        );
+    }
+
+    if (/invalid_proof/i.test(text)) {
+        return (
+            `${text}\n\nUsually SoftHSM was not unlocked, or the proof key/DID is stale. ` +
+            `Unlock with the SECDSA PIN, or regenerate key + did:jwk on this wallet and retry with a fresh offer.`
+        );
+    }
+
+    if (/invalid_request/i.test(text)) {
+        return (
+            `${text}\n\nOften a stale SECDSA key/DID after SoftHSM re-key, or a burned single-use offer. ` +
+            `Delete this wallet’s SECDSA key and did:jwk, regenerate both, then use a fresh offer.`
+        );
+    }
+
+    return text;
+}
+
+function extractReceiveErrorText(err: unknown): string {
+    if (err == null) return "";
+    if (typeof err === "string") {
+        const trimmed = err.trim();
+        if (trimmed.startsWith("{")) {
+            try {
+                return extractReceiveErrorText(JSON.parse(trimmed));
+            } catch {
+                return trimmed;
+            }
+        }
+        return trimmed;
+    }
+    if (typeof err === "object") {
+        const o = err as Record<string, unknown>;
+        const data = o.data;
+        if (typeof data === "string" && data.trim()) return extractReceiveErrorText(data);
+        if (data && typeof data === "object") {
+            const d = data as Record<string, unknown>;
+            const nested =
+                (typeof d.message === "string" && d.message) ||
+                (typeof d.statusMessage === "string" && d.statusMessage) ||
+                (typeof d.error_description === "string" && d.error_description) ||
+                (typeof d.error === "string" && d.error);
+            if (nested) return String(nested);
+        }
+        const top =
+            (typeof o.message === "string" && o.message) ||
+            (typeof o.statusMessage === "string" && o.statusMessage) ||
+            (typeof o.error_description === "string" && o.error_description);
+        if (top) return String(top);
+    }
+    return String(err);
+}
+
 function storage(): Storage | null {
     if (!import.meta.client) return null;
     try {

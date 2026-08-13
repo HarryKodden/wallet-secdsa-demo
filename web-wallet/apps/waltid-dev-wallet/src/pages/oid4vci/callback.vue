@@ -59,6 +59,7 @@ import {
     cancelAuthCodeContinuation,
     clearAuthCodeContinuation,
     completeAuthCodeIssuance,
+    formatOid4vciReceiveError,
     resolveAuthCodeContinuation,
 } from "@waltid-web-wallet/composables/oid4vciAuthCode.ts";
 import {useTitle} from "@vueuse/core";
@@ -178,14 +179,7 @@ onMounted(async () => {
     clearAuthCodeContinuation();
     await navigateTo(`/wallet/${continuation.walletId}`);
   } catch (e: any) {
-    const data = e?.data;
-    const msg =
-      (typeof data === "string" && data) ||
-      data?.message ||
-      data?.statusMessage ||
-      e?.message ||
-      String(e);
-    fail(String(msg));
+    fail(formatOid4vciReceiveError(e));
   }
 });
 </script>
