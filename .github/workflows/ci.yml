@@ -108,10 +108,26 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Caches the Gradle distribution + dependency jars so CI is not coupled to a
+      # single fragile download of services.gradle.org (EOF / timeout flakes).
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: wallet-api2
+          cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+
       - name: Unit tests (eduWallet overlays)
+        working-directory: wallet-api2
         run: |
-          cd wallet-api2
-          ./gradlew test --no-daemon --no-configuration-cache
+          # Retry once — wrapper download from services.gradle.org is occasionally truncated.
+          for attempt in 1 2 3; do
+            if ./gradlew test --no-daemon --no-configuration-cache; then
+              exit 0
+            fi
+            echo "gradlew failed (attempt ${attempt}/3); retrying in 15s…"
+            sleep 15
+          done
+          exit 1
 
       - name: Build wallet-api2 dist
         run: ./scripts/build-api2.sh wallet
