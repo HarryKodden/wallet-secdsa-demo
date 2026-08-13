@@ -254,6 +254,12 @@ this demo’s **Scan** flow as an authenticated user.
 - **Authorization-code** cards (e.g. eduID) → Continue at issuer; ensure the sandbox AS allows
   `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (or point those env vars at a client the sandbox already knows).
 
+**`credential_request_denied: No entitlement found`:** the sandbox issuer rejected the account for that
+card (entitlement), not the wallet’s proof. Use an entitled sandbox user, or smoke Scan with a
+**pre-authorized** / freeform card instead. Paste/camera offer intake is OK once the offer URL is valid.
+
+If the AS metadata sets `require_pushed_authorization_requests`, this stack POSTs a **PAR** request
+before redirecting the browser (`client_id` + `request_uri`).
 ## Layout
 
 ```text

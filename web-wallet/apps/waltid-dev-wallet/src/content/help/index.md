@@ -57,6 +57,23 @@ Pre-authorized offers are typically **single-use**. If Accept already exchanged 
 
 For authorization_code, register `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (default `http://localhost:7115/oid4vci/callback`) at the issuer’s authorization server. Dev sandbox: [eduWallet sandbox](https://sandbox.dev.eduwallet.nl/).
 
+If the AS advertises `require_pushed_authorization_requests`, wallet-api2 uses **PAR** (RFC 9126) automatically before the browser redirect.
+
+### Sandbox eduID: `No entitlement found`
+
+A successful auth-code login at the sandbox does **not** guarantee issuance. The issuer may still return:
+
+`credential_request_denied` — message along the lines of **No entitlement found**
+
+That is an **account / AS entitlement** check on the issuer side (wrong eduID card, or sandbox user without that entitlement). It is **not** a wallet proof or SoftHSM failure.
+
+**What to do:**
+
+1. Use a sandbox account that is entitled for the card you picked (or switch to a freeform / pre-authorized card).
+2. Prefer Lab **pre-authorized** OpenBadge for paste/camera smoke when you only need to prove Scan → Accept.
+3. Confirm keys/DIDs are fresh (stale SoftHSM → `invalid_request`, a different error).
+
+Paste/camera offer intake is fine when the offer itself is valid; entitlement denials happen later at the credential endpoint.
 ## Presenting a credential
 
 1. Open or scan an OID4VP request.
@@ -78,6 +95,7 @@ For authorization_code, register `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (d
 | Accept fails with `invalid_request` | Stale SoftHSM key/DID (see above) or burned offer |
 | Auth-code callback: no matching `state` | Session expired / different browser tab — restart from Scan |
 | Auth-code: `redirect_uri` / `invalid_client` | `OID4VCI_*` not registered at the issuer AS |
+| Auth-code reaches credential endpoint then `credential_request_denied` / **No entitlement found** | Sandbox account not entitled for that card — use an entitled user, or a pre-auth / freeform offer (not a wallet bug) |
 | PIN modal keeps failing | Wrong PIN, or SECDSA lab not running (`docker compose ps`) |
 | Empty keys after restart | Memory WSCD was wiped — regenerate key + DID |
 | Create DID looks failed but DID exists | Older proxy gzip bug — rebuild/restart `web-wallet` |

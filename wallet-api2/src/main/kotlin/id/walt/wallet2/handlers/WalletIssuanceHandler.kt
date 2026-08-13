@@ -35,6 +35,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.request.*
+import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.coroutines.flow.Flow
@@ -1087,6 +1088,10 @@ object WalletIssuanceHandler {
      * Step 1 of auth-code grant: resolve the offer and generate the authorization URL.
      * The caller (mobile app / browser) must then redirect to [GenerateAuthorizationUrlResult.authorizationUrl]
      * and capture the `code` from the redirect callback before calling [exchangeCode].
+     *
+     * When the AS advertises `require_pushed_authorization_requests=true`, the auth request is
+     * first POSTed to `pushed_authorization_request_endpoint` (RFC 9126 PAR); the browser is then
+     * sent to `authorization_endpoint` with `client_id` + `request_uri` only.
      */
     suspend fun generateAuthorizationUrl(request: GenerateAuthorizationUrlRequest): GenerateAuthorizationUrlResult {
         val offer = resolveOffer(request, httpClient)
@@ -1100,14 +1105,29 @@ object WalletIssuanceHandler {
         val clientConfig = clientConfig(request.clientId, request.redirectUri)
         val authBuilder = id.waltid.openid4vci.wallet.authorization.AuthorizationRequestBuilder(clientConfig)
         val credentialConfigurationId = offer.credentialConfigurationIds.first()
+        val issuerState = offer.grants?.authorizationCode?.issuerState
 
-        val authRequest = authBuilder.buildAuthorizationRequest(
-            authorizationEndpoint = authorizationEndpoint,
-            credentialConfigurationId = credentialConfigurationId,
-            issuerState = offer.grants?.authorizationCode?.issuerState,
-            usePKCE = request.usePkce,
-            metadata = asMetadata
-        )
+        val authRequest = if (asMetadata.requirePushedAuthorizationRequests == true) {
+            pushThenBuildAuthorizationRequest(
+                httpClient = httpClient,
+                authBuilder = authBuilder,
+                clientConfig = clientConfig,
+                authorizationEndpoint = authorizationEndpoint,
+                asMetadata = asMetadata,
+                credentialConfigurationId = credentialConfigurationId,
+                issuerState = issuerState,
+                usePkce = request.usePkce,
+            )
+        } else {
+            authBuilder.buildAuthorizationRequest(
+                authorizationEndpoint = authorizationEndpoint,
+                credentialConfigurationId = credentialConfigurationId,
+                issuerState = issuerState,
+                usePKCE = request.usePkce,
+                metadata = asMetadata,
+            )
+        }
+
         return GenerateAuthorizationUrlResult(
             authorizationUrl = Url(authRequest.url),
             state = authRequest.state,
@@ -1115,6 +1135,71 @@ object WalletIssuanceHandler {
             credentialConfigurationId = credentialConfigurationId,
             credentialIssuerBaseUrl = offer.credentialIssuer,
             nonceEndpoint = issuerMetadata.nonceEndpoint?.let { Url(it) },
+        )
+    }
+
+    /**
+     * RFC 9126: POST auth parameters to PAR endpoint, then build a front-channel URL
+     * that carries only `client_id` + `request_uri`.
+     */
+    private suspend fun pushThenBuildAuthorizationRequest(
+        httpClient: HttpClient,
+        authBuilder: id.waltid.openid4vci.wallet.authorization.AuthorizationRequestBuilder,
+        clientConfig: ClientConfiguration,
+        authorizationEndpoint: String,
+        asMetadata: AuthorizationServerMetadata,
+        credentialConfigurationId: String,
+        issuerState: String?,
+        usePkce: Boolean,
+    ): id.waltid.openid4vci.wallet.authorization.AuthorizationRequestBuilder.AuthorizationRequest {
+        val parEndpoint = asMetadata.pushedAuthorizationRequestEndpoint
+            ?: error(
+                "Authorization server requires PAR (require_pushed_authorization_requests=true) " +
+                    "but has no pushed_authorization_request_endpoint",
+            )
+
+        val (parParams, pkceData) = authBuilder.buildPushedAuthorizationRequest(
+            credentialConfigurationId = credentialConfigurationId,
+            issuerState = issuerState,
+            scope = null,
+            usePKCE = usePkce,
+            metadata = asMetadata,
+        )
+        val state = parParams["state"]
+            ?: error("PAR parameter map is missing state")
+
+        log.info {
+            "AS requires PAR — posting authorization request to $parEndpoint " +
+                "(client_id=${clientConfig.clientId})"
+        }
+
+        val parResponse = httpClient.submitForm(
+            url = parEndpoint,
+            formParameters = parameters {
+                parParams.forEach { (key, value) -> append(key, value) }
+            },
+        )
+        val parBody = parResponse.bodyAsText()
+        if (!parResponse.status.isSuccess()) {
+            error("PAR request failed (${parResponse.status.value}): ${parBody.take(500)}")
+        }
+
+        val requestUri = runCatching {
+            lenientJson.parseToJsonElement(parBody).jsonObject["request_uri"]?.jsonPrimitive?.content
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: error("PAR response missing request_uri: ${parBody.take(500)}")
+
+        val authorizationUrl = URLBuilder(authorizationEndpoint).apply {
+            parameters.append("client_id", clientConfig.clientId)
+            parameters.append("request_uri", requestUri)
+        }.buildString()
+
+        log.info { "PAR succeeded — redirecting via request_uri" }
+
+        return id.waltid.openid4vci.wallet.authorization.AuthorizationRequestBuilder.AuthorizationRequest(
+            url = authorizationUrl,
+            state = state,
+            pkceData = pkceData,
         )
     }
 
