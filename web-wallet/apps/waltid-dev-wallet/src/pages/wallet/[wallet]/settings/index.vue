@@ -11,6 +11,17 @@
     <ul class="mt-6 grid gap-3 sm:grid-cols-2">
       <li>
         <NuxtLink
+          to="/settings/connections"
+          class="block rounded-2xl border border-gray-200 bg-white p-4 shadow-sm hover:border-blue-300 hover:bg-blue-50"
+        >
+          <p class="font-semibold text-gray-900">Connections</p>
+          <p class="mt-1 text-sm text-gray-600">
+            OID4VCI client_id / redirect_uri (Lab, sandbox, custom).
+          </p>
+        </NuxtLink>
+      </li>
+      <li>
+        <NuxtLink
           :to="`/wallet/${currentWallet}/settings/keys`"
           class="block rounded-2xl border border-gray-200 bg-white p-4 shadow-sm hover:border-blue-300 hover:bg-blue-50"
         >

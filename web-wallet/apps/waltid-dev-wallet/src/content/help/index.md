@@ -65,7 +65,7 @@ The SECDSA lab keeps **one user key** for account `citizen-42`. If another walle
 
 Pre-authorized offers are typically **single-use**. If Accept already exchanged the code for a token but failed later, request a new offer from the issuer.
 
-For authorization_code, the wallet always uses **PKCE S256**. Register `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (default `http://localhost:7115/oid4vci/callback`) at the issuer’s authorization server. Dev sandbox: [eduWallet sandbox](https://sandbox.dev.eduwallet.nl/).
+For authorization_code, the wallet always uses **PKCE S256**. Register `OID4VCI_CLIENT_ID` / `OID4VCI_REDIRECT_URI` (default `http://localhost:7115/oid4vci/callback`) at the issuer’s authorization server — or override per browser under [Settings → Connections](/settings/connections) (Lab / sandbox / custom). Dev sandbox: [eduWallet sandbox](https://sandbox.dev.eduwallet.nl/).
 
 If the AS advertises `require_pushed_authorization_requests`, wallet-api2 uses **PAR** (RFC 9126) automatically before the browser redirect. Auth requests send both `authorization_details` (credential configuration id) and OIDC/`scope` (`openid` plus the configuration’s `scope` when advertised).
 
@@ -115,6 +115,7 @@ display format from JWT `typ`).
 ## Useful links
 
 - [Settings](/settings) — SECDSA defaults and wallet shortcuts
+- [Connections](/settings/connections) — OID4VCI client_id / redirect_uri profiles (Lab, sandbox, custom)
 - [Privacy & usage](/help/privacy) — data handling and patent notice
 - Wallet API Swagger: [http://localhost:7006/swagger](http://localhost:7006/swagger)
 - Issuer API Swagger: [http://localhost:7005/swagger](http://localhost:7005/swagger)

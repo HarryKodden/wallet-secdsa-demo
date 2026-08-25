@@ -1066,18 +1066,22 @@ object WalletPresentationHandler {
         requestedDid: String?,
         matched: Map<String, List<DcqlMatcher.DcqlMatchResult>>,
     ): String? {
-        if (!requestedDid.isNullOrBlank()) return requestedDid
+        if (!requestedDid.isNullOrBlank()) return stripDidUrlFragment(requestedDid)
 
         for (digital in matchedDigitalCredentials(matched)) {
             val subject = digital.subject
             if (!subject.isNullOrBlank()) {
                 log.debug { "Using credential subject as presentation holder DID" }
-                return subject
+                return stripDidUrlFragment(subject)
             }
         }
 
-        return wallet.defaultDid()
+        return wallet.defaultDid()?.let { stripDidUrlFragment(it) }
     }
+
+    /** DID URL fragments (`#0`) are verification-method refs, not part of the DID. */
+    private fun stripDidUrlFragment(did: String): String =
+        did.substringBefore('#').substringBefore('?')
 
     private fun matchedDigitalCredentials(
         matched: Map<String, List<DcqlMatcher.DcqlMatchResult>>,

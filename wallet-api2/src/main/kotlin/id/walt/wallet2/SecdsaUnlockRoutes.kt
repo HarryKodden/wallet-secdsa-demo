@@ -313,7 +313,8 @@ private fun credentialValidityAgainstWsca(
 private val json = Json { ignoreUnknownKeys = true }
 
 private fun didJwkToUncompressedHex(did: String): String {
-    val encoded = did.removePrefix("did:jwk:")
+    // credentialSubject.id / VM refs may be `did:jwk:…#0` — fragment is not part of the JWK payload
+    val encoded = did.removePrefix("did:jwk:").substringBefore('#').substringBefore('?')
     val bytes = Base64.getUrlDecoder().decode(padB64Url(encoded))
     val obj = json.parseToJsonElement(bytes.decodeToString()).jsonObject
     val x = obj["x"]?.jsonPrimitive?.content ?: error("did:jwk missing x")

@@ -295,10 +295,16 @@ export async function usePresentation(query: any) {
     disclosureModalState.value[matchedCredentials[index.value].id] = true;
   });
 
+  /** DID URL fragments (`#0`) are verification-method refs — strip before present. */
+  function bareDid(did: string | null | undefined): string | null {
+    if (!did) return null;
+    return did.split("#")[0].split("?")[0] || null;
+  }
+
   function kidFromDidJwk(did: string | null | undefined): string | null {
     if (!did || !did.startsWith("did:jwk:")) return null;
     try {
-      const b64 = did.slice("did:jwk:".length).split("#")[0];
+      const b64 = did.slice("did:jwk:".length).split("#")[0].split("?")[0];
       const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
       const jwk = JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/")));
       return typeof jwk?.kid === "string" && jwk.kid ? jwk.kid : null;
@@ -336,21 +342,22 @@ export async function usePresentation(query: any) {
         if (fromCnf) {
           return {
             keyId: fromCnf,
-            did:
+            did: bareDid(
               (cnfKidRef?.startsWith("did:jwk:") && cnfKidRef) ||
-              (typeof payload?.sub === "string" && payload.sub) ||
-              subjectFromParsed ||
-              null,
+                (typeof payload?.sub === "string" && payload.sub) ||
+                subjectFromParsed ||
+                null,
+            ),
           };
         }
         const sub =
           (typeof payload?.sub === "string" && payload.sub) || subjectFromParsed;
-        return {keyId: kidFromDidJwk(sub), did: sub};
+        return {keyId: kidFromDidJwk(sub), did: bareDid(sub)};
       }
 
       return {
         keyId: kidFromDidJwk(subjectFromParsed),
-        did: subjectFromParsed,
+        did: bareDid(subjectFromParsed),
       };
     } catch {
       return {keyId: null, did: null};

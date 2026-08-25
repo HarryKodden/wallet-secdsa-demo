@@ -17,6 +17,20 @@
       </section>
 
       <section class="mt-8 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+        <h2 class="text-lg font-semibold text-gray-900">OID4VCI connections</h2>
+        <p class="mt-1 text-sm text-gray-700">
+          Choose Lab, sandbox, or a custom issuer client_id / redirect_uri for Accept flows.
+          Profiles are stored in this browser and override deploy env for receive.
+        </p>
+        <NuxtLink
+          class="mt-3 inline-flex rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+          to="/settings/connections"
+        >
+          Manage connections
+        </NuxtLink>
+      </section>
+
+      <section class="mt-8 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
         <h2 class="text-lg font-semibold text-gray-900">Mobile devices</h2>
         <p class="mt-1 text-sm text-gray-700">
           Sign in here with OIDC, then show a QR code for the phone to pair.
@@ -103,9 +117,11 @@
           </div>
         </dl>
         <p class="mt-3 text-sm text-gray-600">
-          Set via <code class="rounded bg-gray-100 px-1">ISSUER_AS_*</code> and
+          Deploy defaults via <code class="rounded bg-gray-100 px-1">ISSUER_AS_*</code> and
           <code class="rounded bg-gray-100 px-1">OID4VCI_*</code> in
           <code class="rounded bg-gray-100 px-1">.env</code> (secret is not shown).
+          Browser overrides live under
+          <NuxtLink class="text-blue-600 underline" to="/settings/connections">Connections</NuxtLink>.
         </p>
       </section>
 

@@ -7,6 +7,8 @@
  * it with this OAuth `state`.
  */
 
+import {resolveOid4vciClientConfigFromConnections} from "./oid4vciConnections.ts";
+
 export const OID4VCI_AUTH_CODE_STORAGE_KEY = "oid4vci.authCode.continuation";
 export const OID4VCI_AUTH_CODE_NOTICE_KEY = "oid4vci.authCode.notice";
 export const OID4VCI_AUTH_CODE_TTL_MS = 15 * 60 * 1000;
@@ -108,6 +110,20 @@ export function formatOid4vciReceiveError(
             `authorization server` +
             (redirect ? ` (redirect: ${redirect})` : "") +
             `.`
+        );
+    }
+
+    if (/Cannot find in context:\s*subjectDid|subjectDid/i.test(text)) {
+        return (
+            `${text}\n\nThe issuer needs a DID-bound proof so it can set credentialSubject.id. ` +
+            `Your selected DID must match the SoftHSM key (WSCA OK). ` +
+            `Delete stale DIDs, recreate did:jwk from the current SECDSA key, then retry with a fresh offer.`
+        );
+    }
+
+    if (/Holder DID does not match SoftHSM|No holder DID matches SoftHSM/i.test(text)) {
+        return (
+            `${text}\n\nRecreate did:jwk from the live SoftHSM key (Settings → DIDs), then use a fresh offer.`
         );
     }
 
@@ -326,13 +342,15 @@ export function formatAuthCodeRemaining(remainingMs: number): string {
 
 export function resolveOid4vciClientConfig(runtimeConfig: {
     public: Record<string, unknown>;
-}): { clientId: string; redirectUri: string } {
-    const clientId =
-        String(runtimeConfig.public.oid4vciClientId || "").trim() || "wallet-secdsa-demo";
-    const redirectUri =
-        String(runtimeConfig.public.oid4vciRedirectUri || "").trim() ||
-        `${String(runtimeConfig.public.oidcPublicBaseUrl || "http://localhost:7115").replace(/\/$/, "")}/oid4vci/callback`;
-    return { clientId, redirectUri };
+}): { clientId: string; redirectUri: string; forcePar?: boolean; useDpop?: boolean } {
+    // Active Settings → Connections profile overrides deploy env (browser only).
+    const resolved = resolveOid4vciClientConfigFromConnections(runtimeConfig);
+    return {
+        clientId: resolved.clientId,
+        redirectUri: resolved.redirectUri,
+        forcePar: resolved.forcePar,
+        useDpop: resolved.useDpop,
+    };
 }
 
 type AuthorizationUrlResult = {

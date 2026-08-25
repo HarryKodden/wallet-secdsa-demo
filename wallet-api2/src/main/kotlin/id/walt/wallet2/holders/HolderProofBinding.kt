@@ -19,6 +19,9 @@ private val json = Json { ignoreUnknownKeys = true }
  * SoftHSM SIGN always uses the live user key for the SECDSA account — not whatever
  * public material is baked into an old [SECDSAKey] row. Binding a stale did:jwk
  * (or signing with a stale key metadata object) yields issuer `invalid_proof`.
+ *
+ * Lab issuer profiles also map `credentialSubject.id = <subjectDid>`, which requires
+ * DID-bound proofs. Silent JWK fallback leaves subjectDid unset → issuer 400.
  */
 object HolderProofBinding {
 
@@ -44,13 +47,18 @@ object HolderProofBinding {
             didHint != null -> {
                 val alt = findDidMatchingKey(wallet, key)
                 val keyId = key.getKeyId()
-                log.warn {
-                    "Requested DID does not match signing key $keyId " +
-                        "(SoftHSM would produce invalid_proof). " +
-                        if (alt != null) "Using matching DID instead."
-                        else "Falling back to JWK proof binding."
+                if (alt != null) {
+                    log.warn {
+                        "Requested DID does not match signing key $keyId; using matching DID instead."
+                    }
+                    alt
+                } else {
+                    error(
+                        "Holder DID does not match SoftHSM signing key '$keyId'. " +
+                            "Lab issuer profiles need credentialSubject.id=<subjectDid> from a DID-bound proof. " +
+                            "Delete stale DIDs, recreate did:jwk from the current SECDSA key, then retry with a fresh offer.",
+                    )
                 }
-                alt
             }
             else -> {
                 val preferred = wallet.defaultDid()
@@ -59,6 +67,14 @@ object HolderProofBinding {
                     else -> findDidMatchingKey(wallet, key) ?: preferred
                 }
             }
+        }
+
+        if (matchedDid == null) {
+            error(
+                "No holder DID matches SoftHSM signing key '${key.getKeyId()}'. " +
+                    "Create did:jwk from that key before accepting credentials " +
+                    "(issuer mapping requires <subjectDid>).",
+            )
         }
 
         return Binding(key = key, did = matchedDid)
@@ -90,15 +106,19 @@ object HolderProofBinding {
         return didPub.equals(keyPub, ignoreCase = true)
     }
 
-    suspend fun publicKeyHexFromKey(key: Key): String? = when (key) {
-        is SECDSAKey -> key.publicKeyUncompressedHex.lowercase()
-        else -> runCatching {
-            val jwk = key.getPublicKey().exportJWKObject()
-            val x = jwk["x"]?.jsonPrimitive?.content ?: return@runCatching null
-            val y = jwk["y"]?.jsonPrimitive?.content ?: return@runCatching null
-            jwkCoordsToUncompressedHex(x, y).lowercase()
-        }.getOrNull()
-    }
+    /**
+     * Prefer JWK x‖y (same material DidService embeds in did:jwk) over the stored
+     * uncompressed hex field, which can drift after re-import / serialization.
+     */
+    suspend fun publicKeyHexFromKey(key: Key): String? = runCatching {
+        val fromJwk = jwkObjectToUncompressedHex(key.exportJWKObject())
+            ?: key.getPublicKey().exportJWKObject().let { jwkObjectToUncompressedHex(it) }
+        when {
+            fromJwk != null -> fromJwk
+            key is SECDSAKey -> normalizeUncompressedHex(key.publicKeyUncompressedHex)
+            else -> null
+        }
+    }.getOrNull()
 
     fun publicKeyHexFromDid(did: String): String? = when {
         did.startsWith("did:jwk:") -> runCatching { didJwkToUncompressedHex(did) }.getOrNull()
@@ -106,12 +126,18 @@ object HolderProofBinding {
     }
 
     private fun didJwkToUncompressedHex(did: String): String {
-        val encoded = did.removePrefix("did:jwk:")
+        // credentialSubject.id / VM refs may be `did:jwk:…#0` — fragment is not part of the JWK payload
+        val encoded = did.removePrefix("did:jwk:").substringBefore('#').substringBefore('?')
         val bytes = Base64.getUrlDecoder().decode(padB64Url(encoded))
         val obj = json.parseToJsonElement(bytes.decodeToString()).jsonObject
-        val x = obj["x"]?.jsonPrimitive?.content ?: error("did:jwk missing x")
-        val y = obj["y"]?.jsonPrimitive?.content ?: error("did:jwk missing y")
-        return jwkCoordsToUncompressedHex(x, y)
+        return jwkObjectToUncompressedHex(obj)
+            ?: error("did:jwk missing x/y")
+    }
+
+    private fun jwkObjectToUncompressedHex(obj: kotlinx.serialization.json.JsonObject): String? {
+        val x = obj["x"]?.jsonPrimitive?.content ?: return null
+        val y = obj["y"]?.jsonPrimitive?.content ?: return null
+        return normalizeUncompressedHex(jwkCoordsToUncompressedHex(x, y))
     }
 
     private fun jwkCoordsToUncompressedHex(xB64: String, yB64: String): String {
@@ -121,6 +147,11 @@ object HolderProofBinding {
         val xb = ByteArray(32 - x.size) + x
         val yb = ByteArray(32 - y.size) + y
         return "04" + WscaClient.bytesToHex(xb + yb)
+    }
+
+    private fun normalizeUncompressedHex(hex: String): String {
+        val h = hex.trim().removePrefix("0x").lowercase()
+        return if (h.startsWith("04") || h.length != 128) h else "04$h"
     }
 
     private fun padB64Url(s: String): String {

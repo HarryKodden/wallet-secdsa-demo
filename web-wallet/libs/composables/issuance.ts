@@ -23,8 +23,8 @@ export type IssuanceGrantType = "pre-authorized_code" | "authorization_code" | "
 export async function useIssuance(query: any) {
     const currentWallet = useCurrentWallet();
     const runtimeConfig = useRuntimeConfig();
-    const {clientId: oid4vciClientId, redirectUri: oid4vciRedirectUri} =
-        resolveOid4vciClientConfig(runtimeConfig);
+
+    const resolveClient = () => resolveOid4vciClientConfig(runtimeConfig);
 
     const {data: dids, pending: pendingDids} = await useLazyAsyncData<WalletDidEntry[]>(
         async () => {
@@ -128,12 +128,14 @@ export async function useIssuance(query: any) {
     }
 
     function formatReceiveError(e: any): string {
-        return formatOid4vciReceiveError(e, {oid4vciRedirectUri});
+        const {redirectUri} = resolveClient();
+        return formatOid4vciReceiveError(e, {oid4vciRedirectUri: redirectUri});
     }
 
     async function acceptCredential() {
         failed.value = false;
         failMessage.value = "";
+        const {clientId: oid4vciClientId, redirectUri: oid4vciRedirectUri} = resolveClient();
 
         const did: string | null =
             selectedDid.value?.did ?? dids.value?.[0]?.did ?? null;
@@ -204,6 +206,7 @@ export async function useIssuance(query: any) {
                 method: "POST",
                 body: {
                     offerUrl: request,
+                    clientId: oid4vciClientId,
                     ...(did ? {did} : {}),
                     ...(txCodeRequired.value && txCode.value.trim()
                         ? {txCode: txCode.value.trim()}
@@ -224,6 +227,8 @@ export async function useIssuance(query: any) {
             statusMessage: "Invalid issuance request: No credential_offer",
         });
     }
+
+    const {redirectUri: oid4vciRedirectUri} = resolveClient();
 
     return {
         currentWallet,

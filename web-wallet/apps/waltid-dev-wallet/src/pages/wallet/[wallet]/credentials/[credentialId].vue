@@ -20,7 +20,7 @@
         class="mx-7 mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-950"
         role="status"
       >
-        <p class="font-semibold">Bound to a wiped SoftHSM key</p>
+        <p class="font-semibold">{{ staleHeadline }}</p>
         <p class="mt-1">
           {{ staleReason || "This credential’s subject DID no longer matches the live SoftHSM key." }}
           Presentations will fail until you delete it and re-receive with a fresh
@@ -515,6 +515,16 @@ const binding = computed(() =>
 );
 const staleBinding = computed(() => binding.value?.valid === false);
 const staleReason = computed(() => binding.value?.reason ?? "");
+const staleHeadline = computed(() => {
+  const reason = staleReason.value;
+  if (/Could not decode subject did:jwk/i.test(reason)) {
+    return "Could not read credential subject DID";
+  }
+  if (/No user key in WSCA/i.test(reason)) {
+    return "SoftHSM has no user key";
+  }
+  return "Bound to a wiped SoftHSM key";
+});
 
 const isSdJwtFormat = computed(() => {
   const f = String(credential.value?.format ?? "");

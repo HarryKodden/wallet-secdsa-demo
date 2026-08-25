@@ -19,18 +19,20 @@ object DidVerificationMethodResolver {
      * the first `verificationMethod.id`. Falls back to `"$did#0"` (did:jwk convention).
      */
     suspend fun authenticationKid(did: String): String {
-        resolvePurposeKid(did, "authentication")?.let { return it }
-        resolvePurposeKid(did, "assertionMethod")?.let { return it }
-        resolveFirstVerificationMethodId(did)?.let { return it }
-        val fallback = "$did#0"
-        log.debug { "No authentication/assertionMethod id for $did — using fallback kid $fallback" }
+        val bare = bareDid(did)
+        resolvePurposeKid(bare, "authentication")?.let { return it }
+        resolvePurposeKid(bare, "assertionMethod")?.let { return it }
+        resolveFirstVerificationMethodId(bare)?.let { return it }
+        val fallback = "$bare#0"
+        log.debug { "No authentication/assertionMethod id for $bare — using fallback kid $fallback" }
         return fallback
     }
 
     /** Prefer `assertionMethod`, then authentication (issuer-style binding). */
     suspend fun assertionMethodKid(did: String): String {
-        resolvePurposeKid(did, "assertionMethod")?.let { return it }
-        return authenticationKid(did)
+        val bare = bareDid(did)
+        resolvePurposeKid(bare, "assertionMethod")?.let { return it }
+        return authenticationKid(bare)
     }
 
     private suspend fun resolvePurposeKid(did: String, purpose: String): String? {
@@ -51,12 +53,16 @@ object DidVerificationMethodResolver {
 
     private suspend fun resolveDocument(did: String): Map<String, JsonElement>? {
         return try {
-            DidService.resolve(did).getOrThrow()
+            DidService.resolve(bareDid(did)).getOrThrow()
         } catch (e: Exception) {
             log.warn { "DID resolve failed for $did: ${e.message}" }
             null
         }
     }
+
+    /** Strip DID URL fragment/query (`did:jwk:…#0`) before document resolve. */
+    private fun bareDid(did: String): String =
+        did.substringBefore('#').substringBefore('?')
 
     private fun firstDidUrl(element: JsonElement): String? {
         when (element) {
@@ -73,7 +79,7 @@ object DidVerificationMethodResolver {
             }
             is JsonPrimitive -> return element.contentOrNull?.takeIf { it.isNotBlank() }
             is JsonObject -> return element["id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
-            else -> Unit
+            is JsonNull -> Unit
         }
         return null
     }
