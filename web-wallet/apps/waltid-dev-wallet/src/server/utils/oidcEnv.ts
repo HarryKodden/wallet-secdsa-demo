@@ -32,7 +32,11 @@ export type ResolvedOidcEnv = {
 };
 
 export function resolveOidcEnv(): ResolvedOidcEnv {
-    const baseUrl = firstEnv("OIDC_BASE_URL") || "http://localhost:7115";
+    // Live process env wins over Nuxt-baked runtimeConfig (images often bake localhost).
+    // WALLET_PUBLIC_BASE_URL / PUBLIC_BASE_URL are deploy aliases for the same wallet origin.
+    const baseUrl =
+        firstEnv("OIDC_BASE_URL", "WALLET_PUBLIC_BASE_URL", "PUBLIC_BASE_URL") ||
+        "http://localhost:7115";
     const baseTrimmed = baseUrl.replace(/\/$/, "");
 
     return {

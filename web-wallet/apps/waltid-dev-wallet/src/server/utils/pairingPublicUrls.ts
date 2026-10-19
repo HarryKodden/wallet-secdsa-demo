@@ -1,6 +1,7 @@
 import type {H3Event} from "h3";
 import {getRequestURL} from "h3";
 import {useRuntimeConfig} from "#imports";
+import {resolveOidcEnv} from "./oidcEnv";
 
 export type PairingPublicUrls = {
     /** Browser-facing web-wallet origin (pairing / Nitro), e.g. https://wallet.example.com */
@@ -36,7 +37,10 @@ function isPublicHttps(url: string): boolean {
 
 /**
  * Public origins advertised to mobile during device pairing (QR + exchange).
- * Prefer env FQDNs over compose-internal hostnames.
+ * Prefer live env FQDNs over Nuxt-baked runtimeConfig (often localhost from image build).
+ *
+ * Web wallet origin: OIDC_BASE_URL | WALLET_PUBLIC_BASE_URL | PUBLIC_BASE_URL
+ * API origin: WALLET2_PUBLIC_BASE_URL
  */
 export function pairingPublicUrls(event?: H3Event): PairingPublicUrls {
     const config = useRuntimeConfig();
@@ -44,10 +48,11 @@ export function pairingPublicUrls(event?: H3Event): PairingPublicUrls {
         oidcPublicBaseUrl?: string;
         walletApi2PublicBaseUrl?: string;
     };
+    const env = resolveOidcEnv();
 
     let web =
+        env.baseUrl ||
         (typeof publicCfg.oidcPublicBaseUrl === "string" && publicCfg.oidcPublicBaseUrl.trim()) ||
-        process.env.OIDC_BASE_URL?.trim() ||
         "";
 
     if (!web && event) {
@@ -62,9 +67,9 @@ export function pairingPublicUrls(event?: H3Event): PairingPublicUrls {
     web = trimBase(web);
 
     let api =
+        process.env.WALLET2_PUBLIC_BASE_URL?.trim() ||
         (typeof publicCfg.walletApi2PublicBaseUrl === "string" &&
             publicCfg.walletApi2PublicBaseUrl.trim()) ||
-        process.env.WALLET2_PUBLIC_BASE_URL?.trim() ||
         "";
 
     let apiBaseIsLocalFallback = false;

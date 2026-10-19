@@ -91,17 +91,16 @@
               >
                 API URL missing — set
                 <code class="rounded bg-white px-1">WALLET2_PUBLIC_BASE_URL</code>
-                (or <code class="rounded bg-white px-1">WALLET2_PUBLIC_BASE_URL</code>)
-                on the web-wallet service, e.g.
-                <code class="rounded bg-white px-1">https://web-wallet-api.….surfconext.nl</code>,
-                then recreate the container and refresh this QR.
+                on the web-wallet service (public TLS API FQDN), then recreate and refresh this QR.
               </span>
               <span
                 v-if="pairing.apiBaseIsLocalFallback && pairing.walletApi2BaseUrl"
                 class="block rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900"
               >
                 API still looks local (<code class="rounded bg-white px-1">{{ pairing.walletApi2BaseUrl }}</code>).
-                Phones cannot reach localhost — set the public TLS API FQDN and redeploy web-wallet.
+                Phones cannot reach localhost — set
+                <code class="rounded bg-white px-1">WALLET2_PUBLIC_BASE_URL</code>
+                and redeploy web-wallet.
               </span>
             </p>
             <p class="mt-4 text-xs text-gray-500">
@@ -109,9 +108,9 @@
               and <code class="rounded bg-gray-100 px-1">adb reverse tcp:7006 tcp:7006</code>.
               Public TLS deploy: set
               <code class="rounded bg-gray-100 px-1">OIDC_BASE_URL</code>
+              (or <code class="rounded bg-gray-100 px-1">WALLET_PUBLIC_BASE_URL</code>)
               and
-              <code class="rounded bg-gray-100 px-1">WALLET2_PUBLIC_BASE_URL</code>
-              (or <code class="rounded bg-gray-100 px-1">WALLET2_PUBLIC_BASE_URL</code>).
+              <code class="rounded bg-gray-100 px-1">WALLET2_PUBLIC_BASE_URL</code>.
             </p>
           </div>
         </div>
