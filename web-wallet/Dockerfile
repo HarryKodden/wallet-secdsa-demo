@@ -10,7 +10,8 @@ FROM node:22-bookworm AS build
 WORKDIR /app
 
 # Dependency install — only invalidated when lockfiles / package.json change.
-COPY package.json package-lock.json* ./
+# package-lock.json must be committed (was previously gitignored → npm ci failed in CI).
+COPY package.json package-lock.json ./
 COPY apps/waltid-dev-wallet/package.json ./apps/waltid-dev-wallet/
 RUN npm ci --workspace=@waltid-web-wallet-secdsa/dev-wallet --include-workspace-root
 

@@ -7,7 +7,7 @@ tmp
 
 # dependencies
 node_modules
-package-lock.json
+# Keep package-lock.json tracked — Docker/CI uses `npm ci`.
 
 # IDEs and editors
 /.idea
