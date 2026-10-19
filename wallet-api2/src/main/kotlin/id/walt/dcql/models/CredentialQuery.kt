@@ -2,6 +2,7 @@ package id.walt.dcql.models
 
 import id.walt.dcql.models.meta.CredentialQueryMeta
 import id.walt.dcql.models.meta.CredentialQueryMetaPolymorphicSerializer
+import id.walt.dcql.models.meta.NoMeta
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -29,23 +30,13 @@ data class CredentialQuery(
     val multiple: Boolean = false,
 
     /* Format-specific metadata constraints */
-    /*
-     * meta is REQUIRED. If no specific constraints, it should be an empty object,
-     * which can map to NoMeta or a specific meta type with empty valid values if allowed.
-     * For simplicity with the custom serializer, keeping it nullable but ensuring
-     * the serializer handles the "empty object means NoMeta" case.
-     * A non-nullable type with a default NoMeta would also be an option if the
-     * custom serializer wasn't handling the "empty object" case.
-     */
     /**
-     * REQUIRED. An object defining additional properties requested by the Verifier
-     * that apply to the metadata and validity data of the Credential. The properties
-     * of this object are defined per Credential Format. Examples of those are in
-     * Appendix B.3.5 and Appendix B.2.3. If empty, no specific constraints are
-     * placed on the metadata or validity of the requested Credential.
+     * DCQL draft often marks meta REQUIRED, but SURF OIDF (and some labs) omit it
+     * entirely for open format queries. Treat missing/empty as [NoMeta] so resolve
+     * still succeeds; [id.walt.dcql.DcqlMatcher] already falls back to NoMeta.
      */
     @Serializable(with = CredentialQueryMetaPolymorphicSerializer::class)
-    val meta: CredentialQueryMeta, // = NoMeta // mandatory to be set since draft 29
+    val meta: CredentialQueryMeta = NoMeta,
 
     /* Issuer constraints */
     /**
