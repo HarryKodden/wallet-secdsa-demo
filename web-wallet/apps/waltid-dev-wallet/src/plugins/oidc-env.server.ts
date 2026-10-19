@@ -30,6 +30,12 @@ export default defineNuxtPlugin(() => {
     const api2 = process.env.WALLET2_PUBLIC_BASE_URL?.trim();
     if (api2) config.public.walletApi2PublicBaseUrl = api2;
 
+    const verifierPrefix =
+        process.env.VERIFIER_PUBLIC_URL_PREFIX?.trim() ||
+        process.env.WALLET_VERIFIER_PUBLIC_URL_PREFIX?.trim() ||
+        "";
+    if (verifierPrefix) config.public.verifierPublicUrlPrefix = verifierPrefix;
+
     const appVersion = process.env.APP_VERSION?.trim();
     if (appVersion) config.public.appVersion = appVersion;
 });

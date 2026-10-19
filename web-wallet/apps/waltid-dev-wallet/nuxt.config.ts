@@ -232,6 +232,12 @@ export default defineNuxtConfig({
                 process.env.WSCA_BASE_URL ||
                 "http://secdsa:8080",
             wscaAccountId: process.env.WSCA_ACCOUNT_ID || "citizen-42",
+            // Public verifier verification-session prefix (paste rewrite for localhost QRs).
+            verifierPublicUrlPrefix:
+                process.env.VERIFIER_PUBLIC_URL_PREFIX ||
+                process.env.WALLET_VERIFIER_PUBLIC_URL_PREFIX ||
+                "",
+
             // OID4VCI authorization_code client (separate from wallet login OIDC)
             oid4vciClientId: process.env.OID4VCI_CLIENT_ID || "wallet-secdsa-demo",
             oid4vciRedirectUri:

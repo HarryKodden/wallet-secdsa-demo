@@ -23,6 +23,35 @@ export function fixRequest(req: string) {
     return req.replaceAll("\n", "").trim();
 }
 
+/**
+ * Rewrite loopback verifier hosts in openid4vp request strings so wallet-api2
+ * (running in-cluster / Docker) can fetch request_uri. Prefer the public origin
+ * from runtimeConfig when available.
+ */
+export function rewriteLoopbackVerifierRequest(
+    request: string,
+    publicVerifierOrigin?: string,
+): string {
+    if (!request || typeof request !== "string") return request;
+    const target = (publicVerifierOrigin || "").trim().replace(/\/+$/, "") ||
+        "http://host.docker.internal:7004";
+    let origin = target;
+    try {
+        origin = new URL(target).origin;
+    } catch {
+        origin = target.replace(/\/verification-session\/?$/i, "");
+    }
+    const encoded = encodeURIComponent(origin);
+    let out = request;
+    out = out.replace(/https?:\/\/localhost:7004/gi, origin);
+    out = out.replace(/https?:\/\/127\.0\.0\.1:7004/gi, origin);
+    out = out.replace(/https?:\/\/0\.0\.0\.0:7004/gi, origin);
+    out = out.replace(/https?:\/\/\[::1\]:7004/gi, origin);
+    out = out.replace(/http%3A%2F%2Flocalhost%3A7004/gi, encoded);
+    out = out.replace(/http%3A%2F%2F127\.0\.0\.1%3A7004/gi, encoded);
+    return out;
+}
+
 /** Drop UI-only suffixes that are not the credential_offer_uri JSON endpoint. */
 export function stripOfferUiSuffix(url: string): string {
     try {

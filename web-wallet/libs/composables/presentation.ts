@@ -1,7 +1,7 @@
 import {encodeDisclosure} from "./disclosures.ts";
 import {useCurrentWallet} from "./accountWallet.ts";
 import {computed, type Ref, ref, watch} from "vue";
-import {decodeRequest} from "./siop-requests.ts";
+import {decodeRequest, rewriteLoopbackVerifierRequest} from "./siop-requests.ts";
 import {navigateTo} from "nuxt/app";
 import {useSecdsaPin} from "./secdsaPin.ts";
 import {authorizeHolderSign} from "./soleControlSignGrant.ts";
@@ -145,7 +145,11 @@ export async function usePresentation(query: any) {
   const failMessage = ref("Unknown error occurred.");
 
   const currentWallet = useCurrentWallet();
-  const originalRequest = decodeRequest(query.request as string);
+  const runtimeConfig = useRuntimeConfig();
+  const originalRequest = rewriteLoopbackVerifierRequest(
+    decodeRequest(query.request as string),
+    String(runtimeConfig.public.verifierPublicUrlPrefix || "").trim(),
+  );
 
   let resolved: ResolveVpRequestResult;
   try {

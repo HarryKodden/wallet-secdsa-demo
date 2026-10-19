@@ -1,3 +1,5 @@
+import {rewriteLabPresentationRequest} from "../../utils/labVerifyUrls";
+
 /**
  * Proxy `/wallet-api/**` to wallet-api2, stripping the `/wallet-api` prefix.
  *
@@ -52,7 +54,34 @@ export default defineEventHandler(async (event) => {
     }
 
     const hasBody = !["GET", "HEAD"].includes(method.toUpperCase());
-    const body = hasBody ? await readRawBody(event) : undefined;
+    let body = hasBody ? await readRawBody(event) : undefined;
+
+    // Pasted openid4vp QRs often still embed localhost:7004 request_uri from stock
+    // verifier images — rewrite before wallet-api2 tries to fetch them.
+    if (
+        body &&
+        method.toUpperCase() === "POST" &&
+        /\/credentials\/present\/(?:resolve-request|preview)$/.test(stripped)
+    ) {
+        try {
+            const parsed = JSON.parse(
+                typeof body === "string" ? body : Buffer.from(body).toString("utf8"),
+            ) as {requestUrl?: unknown};
+            if (typeof parsed.requestUrl === "string") {
+                const rewritten = rewriteLabPresentationRequest(parsed.requestUrl);
+                if (rewritten !== parsed.requestUrl) {
+                    parsed.requestUrl = rewritten;
+                    body = JSON.stringify(parsed);
+                    outbound["content-type"] = "application/json";
+                    console.info(
+                        `[wallet-api proxy] rewrote localhost verifier in ${stripped}`,
+                    );
+                }
+            }
+        } catch {
+            /* leave body unchanged */
+        }
+    }
 
     const upstream = await fetch(url, {
         method,

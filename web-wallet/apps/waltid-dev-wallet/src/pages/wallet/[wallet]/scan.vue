@@ -47,13 +47,19 @@ import {
   encodeRequest,
   getSiopRequestType,
   normalizeRequest,
+  rewriteLoopbackVerifierRequest,
   SiopRequestType,
 } from "@waltid-web-wallet/composables/siop-requests.ts";
 
 const currentWallet = useCurrentWallet();
+const runtimeConfig = useRuntimeConfig();
 
 async function startRequest(request) {
   request = normalizeRequest(request);
+  const verifierPrefix = String(
+    runtimeConfig.public.verifierPublicUrlPrefix || "",
+  ).trim();
+  request = rewriteLoopbackVerifierRequest(request, verifierPrefix);
   const type = getSiopRequestType(request);
 
   const encoded = encodeRequest(request);
