@@ -59,6 +59,10 @@ hardware for demos only — it is **not** an eIDAS high-assurance or EUDI wallet
 product. See [NOTICE](NOTICE) and
 [SECDSA USAGE.md](https://github.com/HarryKodden/SECDSA/blob/main/USAGE.md).
 
+**Where is the holder private key created?** In the SECDSA lab (remote GENKEY),
+**not** in the wallet frontend. Current vs device-side keygen is documented in
+[docs/key-creation-architecture.md](docs/key-creation-architecture.md).
+
 ### Assurance factors (demo LoA map)
 
 Rough wwWallet-style mapping of what each factor actually proves in this stack.
