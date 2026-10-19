@@ -11,15 +11,20 @@ export default defineEventHandler(async (event) => {
     const code = typeof query.code === "string" ? query.code : "";
     const state = typeof query.state === "string" ? query.state : "";
     const error = typeof query.error === "string" ? query.error : "";
+    const errorDescription =
+        typeof query.error_description === "string" ? query.error_description : "";
     const expectedState = getCookie(event, "oidc.state") || "";
+    const codeVerifier = getCookie(event, "oidc.pkce") || "";
 
     deleteCookie(event, "oidc.state", {path: "/"});
+    deleteCookie(event, "oidc.pkce", {path: "/"});
 
     if (error) {
-        throw createError({
-            statusCode: 401,
-            statusMessage: `OIDC provider error: ${error}`,
-        });
+        const detail = errorDescription ? `${error}: ${errorDescription}` : error;
+        const loginUrl = new URL(`${oidc.publicBaseUrl}/login`);
+        loginUrl.searchParams.set("error", "oidc");
+        loginUrl.searchParams.set("error_description", detail.slice(0, 400));
+        return sendRedirect(event, loginUrl.toString(), 302);
     }
 
     if (!code) {
@@ -30,11 +35,19 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 400, statusMessage: "Invalid OIDC state"});
     }
 
+    if (!codeVerifier) {
+        throw createError({
+            statusCode: 400,
+            statusMessage: "Missing PKCE code_verifier cookie — restart OIDC login",
+        });
+    }
+
     const body = new URLSearchParams({
         grant_type: "authorization_code",
         client_id: oidc.clientId,
         redirect_uri: oidc.redirectUri,
         code,
+        code_verifier: codeVerifier,
     });
     if (oidc.clientSecret) {
         body.set("client_secret", oidc.clientSecret);
@@ -70,11 +83,12 @@ export default defineEventHandler(async (event) => {
         });
     }
 
+    const secure = getRequestURL(event).protocol === "https:";
     setCookie(event, "oidc.session", token, {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: false,
+        secure,
         maxAge: 60 * 5,
     });
 

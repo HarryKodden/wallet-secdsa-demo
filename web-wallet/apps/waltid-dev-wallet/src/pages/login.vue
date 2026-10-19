@@ -138,6 +138,10 @@ if (route.redirectedFrom != undefined) {
 
 const isOidcLogin = ref(route.query.oidc_login === "true");
 
+if (route.query.error === "oidc" && typeof route.query.error_description === "string") {
+    errorMessage.value = route.query.error_description;
+}
+
 function connectOidc() {
     const redirectTarget =
         typeof route.query.redirect === "string" && route.query.redirect.startsWith("/")
