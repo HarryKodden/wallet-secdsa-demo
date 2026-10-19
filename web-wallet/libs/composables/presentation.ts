@@ -331,7 +331,8 @@ export async function usePresentation(query: any) {
 
       const doc = typeof credential.document === "string" ? credential.document : "";
       // Prefer SD-JWT cnf; fall back to W3C subject did:jwk (jwt_vc_json has cnf: null).
-      // eduWallet uses cnf.kid = did:jwk:… (secdsa kid inside the JWK); some issuers use cnf.jwk.kid.
+      // Lab issuer puts cnf.jwk.kid = did:jwk:… whose embedded JWK kid is secdsa:….
+      // Never pass did:jwk as keyId to authorize-sign (403 Key not in wallet).
       if (doc.includes(".")) {
         const jwt = doc.split("~")[0];
         const payload = parseJwt(jwt) as Record<string, any>;
@@ -342,18 +343,19 @@ export async function usePresentation(query: any) {
         let fromCnf: string | null = null;
         if (cnfJwkKid?.startsWith("secdsa:")) fromCnf = cnfJwkKid;
         else if (cnfKidRef?.startsWith("secdsa:")) fromCnf = cnfKidRef;
+        else if (cnfJwkKid?.startsWith("did:jwk:")) fromCnf = kidFromDidJwk(cnfJwkKid);
         else if (cnfKidRef?.startsWith("did:jwk:")) fromCnf = kidFromDidJwk(cnfKidRef);
-        else if (cnfJwkKid) fromCnf = cnfJwkKid;
+        else if (cnfJwkKid && !cnfJwkKid.includes(":")) fromCnf = cnfJwkKid;
         if (fromCnf) {
-          return {
-            keyId: fromCnf,
-            did: bareDid(
-              (cnfKidRef?.startsWith("did:jwk:") && cnfKidRef) ||
-                (typeof payload?.sub === "string" && payload.sub) ||
+          const holderDid =
+            (cnfJwkKid?.startsWith("did:jwk:") && bareDid(cnfJwkKid)) ||
+            (cnfKidRef?.startsWith("did:jwk:") && bareDid(cnfKidRef)) ||
+            bareDid(
+              (typeof payload?.sub === "string" && payload.sub) ||
                 subjectFromParsed ||
                 null,
-            ),
-          };
+            );
+          return {keyId: fromCnf, did: holderDid};
         }
         const sub =
           (typeof payload?.sub === "string" && payload.sub) || subjectFromParsed;
@@ -410,7 +412,9 @@ export async function usePresentation(query: any) {
       failMessage.value =
         auth.reason === "no_secdsa_key"
           ? "No SECDSA key available for this credential."
-          : "Presentation cancelled.";
+          : auth.reason === "authorize_sign_failed"
+            ? "Could not authorize signing (wrong SoftHSM key/PIN, or key not in wallet)."
+            : "Presentation cancelled.";
       return;
     }
     if (auth.mode === "legacy") {
