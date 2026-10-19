@@ -465,7 +465,9 @@ object WalletIssuanceHandler {
      *
      * - DID binding: `kid` from holder DID `authentication` (DIIP); `iss` = DID by default,
      *   or [clientId] when [preferClientIdAsIss] (OID4VCI / walt.id issuers that require
-     *   proof `iss` to match the access token `client_id`, including pre-authorized).
+     *   proof `iss` to match the access token `client_id`).
+     * - Anonymous pre-authorized access: omit `iss` entirely (walt.id issuer-api2 rejects
+     *   any proof issuer claim for that grant).
      * - Otherwise: embed JWK in the header.
      */
     private suspend fun JwtProofBuilder.buildProof(
@@ -475,12 +477,20 @@ object WalletIssuanceHandler {
         did: String?,
         clientId: String? = null,
         preferClientIdAsIss: Boolean = false,
+        omitIss: Boolean = false,
     ): id.walt.openid4vci.prooftypes.Proofs {
         if (did == null) {
-            return buildJwtProof(key, issuer, nonce, includeJwk = true, clientId = clientId)
+            return buildJwtProof(
+                key,
+                issuer,
+                nonce,
+                includeJwk = true,
+                clientId = clientId.takeUnless { omitIss },
+            )
         }
         val kid = DidVerificationMethodResolver.authenticationKid(did)
         val iss = when {
+            omitIss -> null
             preferClientIdAsIss && !clientId.isNullOrBlank() -> clientId
             else -> did
         }
@@ -661,9 +671,8 @@ object WalletIssuanceHandler {
                             offeredCredential.configuration.cryptographicBindingMethodsSupported
                         )
                         if (did != null && !preferJwkBinding) {
-                            // walt.id issuer-api2 rejects proofs whose `iss` ≠ access-token client_id
-                            // when the token was issued to a client. Anonymous pre-auth tokens have
-                            // no client_id — use the holder DID as iss instead.
+                            // walt.id issuer-api2: authenticated tokens require proof iss ==
+                            // access-token client_id; anonymous pre-auth requires iss omitted.
                             val proofClientId =
                                 request.clientId.takeIf { it.isNotBlank() && !anonymousPreAuthorizedCode }
                             proofBuilder.buildProof(
@@ -673,6 +682,7 @@ object WalletIssuanceHandler {
                                 did = did,
                                 clientId = proofClientId,
                                 preferClientIdAsIss = proofClientId != null,
+                                omitIss = anonymousPreAuthorizedCode,
                             ).jwt?.firstOrNull()
                         } else {
                             proofBuilder.buildJwtProof(

@@ -128,6 +128,12 @@ export function formatOid4vciReceiveError(
     }
 
     if (/invalid_proof/i.test(text)) {
+        if (/issuer claim must be omitted|anonymous pre-authorized/i.test(text)) {
+            return (
+                `${text}\n\nLab issuer requires the proof JWT to omit iss for anonymous pre-authorized access. ` +
+                `Retry with a fresh offer after the wallet update.`
+            );
+        }
         if (/issuer claim must match|access token client_id/i.test(text)) {
             return (
                 `${text}\n\nThe issuer requires proof JWT iss to equal the OAuth client_id used at the token endpoint. ` +
