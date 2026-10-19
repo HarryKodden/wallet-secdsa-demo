@@ -118,7 +118,9 @@ function applyPastedText(raw: string, {autoContinue = true} = {}): boolean {
   }
   if (!isSiopRequest(trimmed)) {
     hint.value =
-      "Got text from the QR/clipboard, but it is not a recognized offer or presentation link.";
+      /^https?:\/\/[^/]+\/?$/i.test(trimmed)
+        ? "That looks like an issuer homepage, not an offer. Scan/paste the credential-offer QR (or openid-credential-offer://… / …/credential-offer/… link). Enter the 6-digit tx_code from the issuer page on Accept."
+        : "Got text from the QR/clipboard, but it is not a recognized offer or presentation link.";
   }
   return isSiopRequest(trimmed);
 }

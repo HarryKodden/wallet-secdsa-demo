@@ -671,27 +671,37 @@ object WalletIssuanceHandler {
                             offeredCredential.configuration.cryptographicBindingMethodsSupported
                         )
                         if (did != null && !preferJwkBinding) {
-                            // walt.id issuer-api2: authenticated tokens require proof iss ==
-                            // access-token client_id; anonymous pre-auth requires iss omitted.
-                            val proofClientId =
-                                request.clientId.takeIf { it.isNotBlank() && !anonymousPreAuthorizedCode }
+                            // Proof iss rules vary by issuer:
+                            // - walt.id anonymous pre-auth: omit iss
+                            // - walt.id authenticated: iss must equal access-token client_id
+                            // - SURF OIDF / DIIP default: iss = holder did:jwk|did:web
+                            val tokenClientId = accessTokenClientIdClaim(tokenResponse.access_token)
+                            val omitIss = anonymousPreAuthorizedCode
+                            val preferClientIdAsIss = !omitIss && !tokenClientId.isNullOrBlank()
                             proofBuilder.buildProof(
                                 key = key,
                                 issuer = offer.credentialIssuer,
                                 nonce = nonce,
                                 did = did,
-                                clientId = proofClientId,
-                                preferClientIdAsIss = proofClientId != null,
-                                omitIss = anonymousPreAuthorizedCode,
+                                clientId = when {
+                                    omitIss -> null
+                                    preferClientIdAsIss -> tokenClientId
+                                    else -> null
+                                },
+                                preferClientIdAsIss = preferClientIdAsIss,
+                                omitIss = omitIss,
                             ).jwt?.firstOrNull()
                         } else {
+                            val tokenClientId = accessTokenClientIdClaim(tokenResponse.access_token)
                             proofBuilder.buildJwtProof(
                                 key,
                                 offer.credentialIssuer,
                                 nonce,
                                 includeJwk = true,
-                                clientId = request.clientId.takeIf {
-                                    it.isNotBlank() && !anonymousPreAuthorizedCode
+                                clientId = when {
+                                    anonymousPreAuthorizedCode -> null
+                                    !tokenClientId.isNullOrBlank() -> tokenClientId
+                                    else -> null
                                 },
                             ).jwt?.firstOrNull()
                         }
@@ -828,7 +838,13 @@ object WalletIssuanceHandler {
         val offer = resolveOffer(request, httpClient)
         val metadataResolver = IssuerMetadataResolver(httpClient)
         val issuerMetadata = metadataResolver.resolveCredentialIssuerMetadata(offer.credentialIssuer)
-        val asMetadata = metadataResolver.resolveAuthorizationServerMetadataWithFallback(issuerMetadata)
+        val preferPreAuthorized = offer.grants?.preAuthorizedCode != null
+        val asMetadata = resolveAuthorizationServerMetadataForOffer(
+            offer = offer,
+            issuerMetadata = issuerMetadata,
+            metadataResolver = metadataResolver,
+            preferPreAuthorized = preferPreAuthorized,
+        )
         val offeredCredentials = OfferedCredentialResolver.resolveOfferedCredentials(offer, issuerMetadata)
         val txCode = offer.grants?.preAuthorizedCode?.txCode
         return ResolvedIssuanceOffer(
@@ -853,6 +869,84 @@ object WalletIssuanceHandler {
             authorizationServerMetadata = asMetadata,
             offeredCredentials = offeredCredentials,
         )
+    }
+
+    /**
+     * Pick the AS that actually supports the grant in play.
+     *
+     * SURF OIDF lab lists IdP authorization servers for authorization_code while hosting
+     * pre-authorized token exchange on the credential issuer itself (often with partial
+     * AS metadata). Stock "first authorization_servers entry" selection hits the wrong token
+     * endpoint.
+     */
+    private suspend fun resolveAuthorizationServerMetadataForOffer(
+        offer: CredentialOffer,
+        issuerMetadata: CredentialIssuerMetadata,
+        metadataResolver: IssuerMetadataResolver,
+        preferPreAuthorized: Boolean,
+    ): AuthorizationServerMetadata {
+        val grantPreferred =
+            if (preferPreAuthorized) {
+                offer.grants?.preAuthorizedCode?.authorizationServer
+            } else {
+                offer.grants?.authorizationCode?.authorizationServer
+            }?.takeIf { it.isNotBlank() }
+
+        val candidates = buildList {
+            grantPreferred?.let { add(it) }
+            add(issuerMetadata.credentialIssuer)
+            addAll(issuerMetadata.authorizationServerIssuers())
+        }.map { it.trimEnd('/') }.distinct()
+
+        val resolved = mutableListOf<Pair<String, AuthorizationServerMetadata>>()
+        for (issuer in candidates) {
+            try {
+                resolved += issuer to metadataResolver.resolveAuthorizationServerMetadata(issuer)
+            } catch (e: Exception) {
+                log.debug(e) { "Authorization server metadata unavailable for $issuer" }
+            }
+        }
+        if (resolved.isEmpty()) {
+            return metadataResolver.resolveAuthorizationServerMetadataWithFallback(issuerMetadata)
+        }
+
+        val preAuthGrant = id.walt.openid4vci.GrantType.PreAuthorizedCode.value
+        val authCodeGrant = id.walt.openid4vci.GrantType.AuthorizationCode.value
+        val selected =
+            if (preferPreAuthorized) {
+                resolved.firstOrNull { (_, meta) ->
+                    meta.grantTypesSupported?.contains(preAuthGrant) == true
+                } ?: resolved.firstOrNull { (issuer, _) ->
+                    issuer == issuerMetadata.credentialIssuer.trimEnd('/')
+                }
+            } else {
+                resolved.firstOrNull { (_, meta) ->
+                    meta.grantTypesSupported?.contains(authCodeGrant) == true ||
+                        !meta.authorizationEndpoint.isNullOrBlank()
+                }
+            } ?: resolved.first()
+
+        log.info {
+            "Selected authorization server ${selected.second.issuer} " +
+                "(token=${selected.second.tokenEndpoint}) for " +
+                if (preferPreAuthorized) "pre-authorized_code" else "authorization_code"
+        }
+        return selected.second
+    }
+
+    private fun accessTokenClientIdClaim(accessToken: String?): String? {
+        if (accessToken.isNullOrBlank()) return null
+        val parts = accessToken.split('.')
+        if (parts.size < 2) return null
+        return runCatching {
+            val padded = parts[1].let { s ->
+                val pad = (4 - s.length % 4) % 4
+                s + "=".repeat(pad)
+            }
+            val json = String(java.util.Base64.getUrlDecoder().decode(padded), Charsets.UTF_8)
+            Json.parseToJsonElement(json).jsonObject["client_id"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+        }.getOrNull()
     }
 
     private fun ReceiveCredentialRequest.toResolveOfferRequest(): ResolveOfferRequest =

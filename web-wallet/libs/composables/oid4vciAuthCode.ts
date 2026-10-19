@@ -134,6 +134,12 @@ export function formatOid4vciReceiveError(
                 `Retry with a fresh offer after the wallet update.`
             );
         }
+        if (/proof iss must be did:jwk or did:web/i.test(text)) {
+            return (
+                `${text}\n\nThis issuer requires proof JWT iss to be your holder DID (did:jwk / did:web), not client_id. ` +
+                `Select a WSCA OK did:jwk and retry with a fresh offer (and the issuer tx_code if shown).`
+            );
+        }
         if (/issuer claim must match|access token client_id/i.test(text)) {
             return (
                 `${text}\n\nThe issuer requires proof JWT iss to equal the OAuth client_id used at the token endpoint. ` +

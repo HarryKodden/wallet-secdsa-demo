@@ -42,4 +42,25 @@ class EduWalletAuthorizationServerMetadataTest {
         assertEquals(null, metadata.authorizationEndpoint)
         assertEquals("https://agent.dev.eduwallet.nl/sandbox/jwks", metadata.jwksUri)
     }
+
+    @Test
+    fun `parses SURF OIDF lab pre-authorized token-only AS without response_types`() {
+        val raw = """
+            {
+              "grant_types_supported": ["urn:ietf:params:oauth:grant-type:pre-authorized_code"],
+              "issuer": "https://issuer.poc2.dev.oidf.lab.surfconext.nl",
+              "pre-authorized_grant_anonymous_access_supported": false,
+              "token_endpoint": "https://issuer.poc2.dev.oidf.lab.surfconext.nl/token"
+            }
+        """.trimIndent()
+
+        val metadata = json.decodeFromString(AuthorizationServerMetadata.serializer(), raw)
+        assertEquals("https://issuer.poc2.dev.oidf.lab.surfconext.nl/token", metadata.tokenEndpoint)
+        assertEquals(
+            setOf("urn:ietf:params:oauth:grant-type:pre-authorized_code"),
+            metadata.grantTypesSupported,
+        )
+        assertEquals(setOf("token"), metadata.responseTypesSupported)
+        assertEquals(false, metadata.preAuthorizedGrantAnonymousAccessSupported)
+    }
 }

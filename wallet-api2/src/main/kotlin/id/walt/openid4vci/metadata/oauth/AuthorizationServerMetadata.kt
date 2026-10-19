@@ -109,7 +109,9 @@ data class AuthorizationServerMetadata(
         // RFC 8414 §2: issuer must be a valid URL without query/fragment.
         validateIssuerUrl(issuer)
 
-        // RFC 8414 §2: response_types_supported is REQUIRED.
+        // RFC 8414 §2: response_types_supported is REQUIRED for full OAuth AS metadata.
+        // Token-only / pre-authorized_code AS documents (SURF OIDF lab, some sandboxes) omit it;
+        // we synthesize a non-empty placeholder at deserialize time and allow that here.
         require(responseTypesSupported.isNotEmpty()) {
             "Authorization server response_types_supported is required"
         }
@@ -383,19 +385,27 @@ internal object AuthorizationServerMetadataSerializer : KSerializer<Authorizatio
         val jsonDecoder = decoder as? JsonDecoder
             ?: error("AuthorizationServerMetadataSerializer only supports JSON")
         val element = jsonDecoder.decodeJsonElement().jsonObject
+        val grantTypes = element.stringSet("grant_types_supported")
+        val tokenEndpoint = element.string("token_endpoint")
+        val authorizationEndpoint = element.string("authorization_endpoint")
         val responseTypes = element.stringSet("response_types_supported")
+            ?: synthesizedResponseTypesForTokenOnlyAs(
+                grantTypes = grantTypes,
+                tokenEndpoint = tokenEndpoint,
+                authorizationEndpoint = authorizationEndpoint,
+            )
             ?: error("Authorization server response_types_supported is required")
         val customParameters = element.filterKeys { it !in knownKeys }.takeIf { it.isNotEmpty() }
         return AuthorizationServerMetadata(
             issuer = element.string("issuer") ?: error("Authorization server issuer is required"),
-            authorizationEndpoint = element.string("authorization_endpoint"),
-            tokenEndpoint = element.string("token_endpoint"),
+            authorizationEndpoint = authorizationEndpoint,
+            tokenEndpoint = tokenEndpoint,
             jwksUri = element.string("jwks_uri"),
             registrationEndpoint = element.string("registration_endpoint"),
             scopesSupported = element.stringSet("scopes_supported"),
             responseTypesSupported = responseTypes,
             responseModesSupported = element.stringSet("response_modes_supported"),
-            grantTypesSupported = element.stringSet("grant_types_supported"),
+            grantTypesSupported = grantTypes,
             tokenEndpointAuthMethodsSupported = element.stringSet("token_endpoint_auth_methods_supported"),
             tokenEndpointAuthSigningAlgValuesSupported =
                 element.stringSet("token_endpoint_auth_signing_alg_values_supported"),
@@ -442,3 +452,26 @@ private fun JsonObject.stringList(name: String): List<String>? =
 
 private fun Collection<String>.toJsonArray(): JsonArray =
     JsonArray(map { JsonPrimitive(it) })
+
+/**
+ * Non-compliant / partial AS metadata used by some OID4VCI demos advertise only
+ * `grant_types_supported=["urn:ietf:params:oauth:grant-type:pre-authorized_code"]`
+ * + `token_endpoint` and omit RFC 8414 `response_types_supported`.
+ */
+private fun synthesizedResponseTypesForTokenOnlyAs(
+    grantTypes: Set<String>?,
+    tokenEndpoint: String?,
+    authorizationEndpoint: String?,
+): Set<String>? {
+    if (tokenEndpoint.isNullOrBlank()) return null
+    val preAuth = GrantType.PreAuthorizedCode.value
+    val authCode = GrantType.AuthorizationCode.value
+    val preAuthOnly =
+        grantTypes != null &&
+            grantTypes.contains(preAuth) &&
+            !grantTypes.contains(authCode)
+    val tokenOnlyNoAuthorize =
+        authorizationEndpoint.isNullOrBlank() &&
+            (grantTypes == null || preAuthOnly || !grantTypes.contains(authCode))
+    return if (preAuthOnly || tokenOnlyNoAuthorize) setOf("token") else null
+}

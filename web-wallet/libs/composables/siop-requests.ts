@@ -23,6 +23,19 @@ export function fixRequest(req: string) {
     return req.replaceAll("\n", "").trim();
 }
 
+/** Drop UI-only suffixes that are not the credential_offer_uri JSON endpoint. */
+export function stripOfferUiSuffix(url: string): string {
+    try {
+        const u = new URL(url);
+        u.pathname = u.pathname.replace(/\/(qr\.png|qr|open)\/?$/i, "");
+        let out = u.toString();
+        if (out.endsWith("/") && u.pathname !== "/") out = out.slice(0, -1);
+        return out;
+    } catch {
+        return url.replace(/\/(qr\.png|qr|open)\/?$/i, "");
+    }
+}
+
 /**
  * Normalize pasted text / QR payload from another browser tab into a SIOP deep link.
  * Accepts deep links, HTTPS credential-offer URLs, or larger clipboard blobs that contain them.
@@ -55,9 +68,13 @@ export function normalizeRequest(raw: string): string {
                     return fixRequest(decoded);
                 }
                 if (/^https?:\/\//i.test(decoded)) {
-                    return `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(decoded)}`;
+                    return `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(
+                        stripOfferUiSuffix(decoded),
+                    )}`;
                 }
             }
+            // SURF / demo UIs expose …/credential-offer/{id}/qr.png or /open — fetch the offer JSON id.
+            req = stripOfferUiSuffix(u.toString());
         } catch {
             /* keep wrapping whole URL */
         }
