@@ -27,6 +27,10 @@ export type SecdsaStatusResponse = {
     hasUserKey?: boolean;
     /** wallet-api2 process already holds SoftHSM PIN for this account. */
     pinSessionActive?: boolean;
+    /** Track G — `SOLE_CONTROL_SIGNING` env on wallet-api2. */
+    soleControlSigning?: boolean;
+    /** Track G — a non-expired SignGrant exists for this wallet + account. */
+    signGrantActive?: boolean;
     backend?: string | null;
     wscaPublicKeyHex?: string | null;
     keys?: SecdsaKeyValidity[];

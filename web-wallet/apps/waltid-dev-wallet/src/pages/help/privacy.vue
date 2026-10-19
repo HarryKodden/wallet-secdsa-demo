@@ -53,8 +53,18 @@
                 <td class="px-3 py-2">SoftHSM PIN (session)</td>
                 <td class="px-3 py-2">wallet-api2 process memory (+ browser Pinia while the tab lives)</td>
                 <td class="px-3 py-2">
-                  Not written to disk. Survives SPA navigations; cleared when wallet-api2 restarts.
-                  PRF-encrypted copy may be stored for silent restore after passkey login.
+                  <strong>Legacy demo path</strong> when sole-control is off. With
+                  <code>SOLE_CONTROL_SIGNING=true</code>, PIN is used to mint a short-lived
+                  SignGrant — not as a free-floating unlock for every SIGN.
+                  PRF-encrypted copy may restore PIN after passkey presence (never sent as PRF bytes).
+                </td>
+              </tr>
+              <tr>
+                <td class="px-3 py-2">SignGrant (Track G)</td>
+                <td class="px-3 py-2">wallet-api2 process memory after <code>authorize-sign</code></td>
+                <td class="px-3 py-2">
+                  ≈3 minutes, single-use. Accept / Present mint a grant after consent + passkey presence.
+                  This demo does <strong>not</strong> claim certified LoA High.
                 </td>
               </tr>
               <tr>

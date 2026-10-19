@@ -56,6 +56,10 @@ import PageHeader from "@waltid-web-wallet/components/PageHeader.vue";
 import LoadingIndicator from "@waltid-web-wallet/components/loading/LoadingIndicator.vue";
 import {useSecdsaPin} from "@waltid-web-wallet/composables/secdsaPin.ts";
 import {
+    authorizeHolderSign,
+    consumeIssuanceConsent,
+} from "@waltid-web-wallet/composables/soleControlSignGrant.ts";
+import {
     cancelAuthCodeContinuation,
     clearAuthCodeContinuation,
     completeAuthCodeIssuance,
@@ -155,19 +159,39 @@ onMounted(async () => {
 
   const continuation = resolved.continuation;
   walletId.value = continuation.walletId;
-  statusText.value = "Unlock SECDSA key for proof of possession…";
+  statusText.value = "Authorize signing for proof of possession…";
 
   try {
-    // Callback path has no `/wallet/:wallet` param; unlock must use the
-    // continuation wallet or SoftHSM stays inactive → invalid_proof.
-    const {ensureUnlocked} = useSecdsaPin();
-    const unlocked = await ensureUnlocked({
-      title: "Enter SECDSA PIN to finish credential receipt",
+    // Callback path has no `/wallet/:wallet` param; use continuation wallet.
+    const {ensureUnlocked, defaultAccountId} = useSecdsaPin();
+    const accountId = defaultAccountId();
+    const hadConsent = consumeIssuanceConsent(continuation.walletId);
+    const auth = await authorizeHolderSign({
       walletId: continuation.walletId,
+      accountId,
+      purpose: "issuance",
+      skipConsent: hadConsent,
+      summary: {
+        title: "Finish receiving this credential?",
+        party: continuation.credentialIssuerBaseUrl || "issuer",
+        detail: "Confirm presence to mint a SignGrant for proof of possession.",
+        confirmLabel: "Continue",
+      },
+      binding: {clientId: continuation.clientId},
     });
-    if (!unlocked) {
-      fail("PIN unlock cancelled — credential was not fetched.");
+    if (auth.mode === "cancelled") {
+      fail("Signing authorization cancelled — credential was not fetched.");
       return;
+    }
+    if (auth.mode === "legacy") {
+      const unlocked = await ensureUnlocked({
+        title: "Enter SECDSA PIN to finish credential receipt",
+        walletId: continuation.walletId,
+      });
+      if (!unlocked) {
+        fail("PIN unlock cancelled — credential was not fetched.");
+        return;
+      }
     }
 
     statusText.value = "Exchanging authorization code and fetching credential…";
@@ -176,6 +200,7 @@ onMounted(async () => {
       code,
       continuation,
       did: continuation.did,
+      signGrant: auth.mode === "grant" ? auth.signGrant : null,
     });
 
     clearAuthCodeContinuation();

@@ -5,6 +5,11 @@ import {type Ref, ref, watch} from "vue";
 import {groupBy} from "./groupings.ts";
 import {useSecdsaPin} from "./secdsaPin.ts";
 import {
+    authorizeHolderSign,
+    ensureAcceptConsent,
+    rememberIssuanceConsent,
+} from "./soleControlSignGrant.ts";
+import {
     formatOid4vciReceiveError,
     resolveOid4vciClientConfig,
     startAuthCodeRedirect,
@@ -170,6 +175,27 @@ export async function useIssuance(query: any) {
                     );
                 }
 
+                // Consent before leaving for the AS; presence + SignGrant mint on callback
+                // (grant TTL is too short to survive the authorization_code round-trip).
+                const {defaultAccountId} = useSecdsaPin();
+                const consented = await ensureAcceptConsent({
+                    walletId: String(currentWallet.value),
+                    accountId: defaultAccountId(),
+                    summary: {
+                        title: "Accept this credential offer?",
+                        party: String(credentialEndpoint.value || "issuer"),
+                        detail:
+                            "You will sign in at the issuer, then confirm presence to mint a short-lived SignGrant for proof of possession.",
+                        confirmLabel: "Accept & continue",
+                    },
+                });
+                if (!consented) {
+                    failed.value = true;
+                    failMessage.value = "Accept cancelled.";
+                    return;
+                }
+                rememberIssuanceConsent(String(currentWallet.value));
+
                 await startAuthCodeRedirect({
                     walletId: String(currentWallet.value),
                     offerUrl: request,
@@ -196,11 +222,34 @@ export async function useIssuance(query: any) {
                 return;
             }
 
-            const {ensureUnlocked} = useSecdsaPin();
-            const unlocked = await ensureUnlocked({
-                title: "Enter SECDSA PIN to receive credential",
+            const {ensureUnlocked, defaultAccountId} = useSecdsaPin();
+            const accountId = defaultAccountId();
+            const auth = await authorizeHolderSign({
+                walletId: String(currentWallet.value),
+                accountId,
+                purpose: "issuance",
+                summary: {
+                    title: "Accept this credential?",
+                    party: String(credentialEndpoint.value || "issuer"),
+                    detail: "Confirm to mint a short-lived SignGrant and receive the credential.",
+                    confirmLabel: "Accept",
+                },
+                binding: {clientId: oid4vciClientId},
             });
-            if (!unlocked) return;
+            if (auth.mode === "cancelled") {
+                failed.value = true;
+                failMessage.value =
+                    auth.reason === "no_secdsa_key"
+                        ? "No SECDSA key in this wallet — create one in Settings first."
+                        : "Accept cancelled.";
+                return;
+            }
+            if (auth.mode === "legacy") {
+                const unlocked = await ensureUnlocked({
+                    title: "Enter SECDSA PIN to receive credential",
+                });
+                if (!unlocked) return;
+            }
 
             await $fetch(`/wallet-api/wallet/${currentWallet.value}/credentials/receive`, {
                 method: "POST",
@@ -211,6 +260,7 @@ export async function useIssuance(query: any) {
                     ...(txCodeRequired.value && txCode.value.trim()
                         ? {txCode: txCode.value.trim()}
                         : {}),
+                    ...(auth.mode === "grant" ? {signGrant: auth.signGrant} : {}),
                 },
             });
             navigateTo(`/wallet/${currentWallet.value}`);

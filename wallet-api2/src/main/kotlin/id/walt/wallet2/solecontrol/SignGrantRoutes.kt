@@ -99,7 +99,9 @@ fun Route.registerSignGrantRoutes(
         if (pin == null) {
             return@post call.respond(
                 HttpStatusCode.BadRequest,
-                "pin required to mint SignGrant until WebAuthn presence path (G2)",
+                "pin required to mint SignGrant (SoftHSM unlock proof). " +
+                    "WebAuthn presence is enforced by the wallet UI (G2); " +
+                    "PIN may come from PRF restore or a step-up prompt.",
             )
         }
 

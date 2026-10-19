@@ -376,6 +376,8 @@ export async function completeAuthCodeIssuance(opts: {
     code: string;
     continuation: Oid4vciAuthCodeContinuation;
     did?: string | null;
+    /** Track G SignGrant (purpose=issuance) when SOLE_CONTROL_SIGNING is on. */
+    signGrant?: string | null;
 }): Promise<void> {
     const { walletId, code, continuation } = opts;
     const did = opts.did ?? continuation.did;
@@ -412,8 +414,8 @@ export async function completeAuthCodeIssuance(opts: {
         }
     }
 
-    // SECDSA SoftHSM must already be unlocked; do not swallow sign failures —
-    // continuing without a proof only yields a confusing issuer invalid_proof.
+    // SECDSA SoftHSM must already be unlocked (legacy) or SignGrant provided (Track G).
+    // Do not swallow sign failures — continuing without a proof only yields invalid_proof.
     const proof = await $fetch<{ proofJwt: string }>(
         `/wallet-api/wallet/${walletId}/credentials/receive/sign-proof`,
         {
@@ -424,6 +426,7 @@ export async function completeAuthCodeIssuance(opts: {
                 did,
                 // Auth-code proofs need iss=client_id (eduID / OID4VCI); pre-auth may omit.
                 clientId: continuation.clientId,
+                ...(opts.signGrant ? {signGrant: opts.signGrant} : {}),
             },
         },
     );

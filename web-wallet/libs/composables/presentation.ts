@@ -4,6 +4,7 @@ import {computed, type Ref, ref, watch} from "vue";
 import {decodeRequest} from "./siop-requests.ts";
 import {navigateTo} from "nuxt/app";
 import {useSecdsaPin} from "./secdsaPin.ts";
+import {authorizeHolderSign} from "./soleControlSignGrant.ts";
 import {normalizeWalletCredential} from "./credential.ts";
 import {parseJwt} from "../utils/jwt.ts";
 
@@ -384,11 +385,37 @@ export async function usePresentation(query: any) {
     const secdsaAccountId = holderKeyId ? secdsaAccountFromKeyId(holderKeyId) : null;
 
     const {ensureUnlocked, defaultAccountId} = useSecdsaPin();
-    const unlocked = await ensureUnlocked({
-      title: "Enter SECDSA PIN to present credential",
-      accountId: secdsaAccountId ?? defaultAccountId(),
+    const accountId = secdsaAccountId ?? defaultAccountId();
+    const auth = await authorizeHolderSign({
+      walletId: String(currentWallet.value),
+      accountId,
+      purpose: "presentation",
+      keyId: holderKeyId,
+      summary: {
+        title: "Present selected credentials?",
+        party: verifierHost || "verifier",
+        detail: "Confirm presence to mint a short-lived SignGrant for this presentation.",
+        confirmLabel: "Present",
+      },
+      binding: {
+        clientId: resolved.clientId ? String(resolved.clientId) : undefined,
+      },
     });
-    if (!unlocked) return;
+    if (auth.mode === "cancelled") {
+      failed.value = true;
+      failMessage.value =
+        auth.reason === "no_secdsa_key"
+          ? "No SECDSA key available for this credential."
+          : "Presentation cancelled.";
+      return;
+    }
+    if (auth.mode === "legacy") {
+      const unlocked = await ensureUnlocked({
+        title: "Enter SECDSA PIN to present credential",
+        accountId,
+      });
+      if (!unlocked) return;
+    }
 
     try {
       const result = await $fetch<{
@@ -406,6 +433,7 @@ export async function usePresentation(query: any) {
           // Must match credential cnf / subject did:jwk — not a stale wallet default DID.
           ...(holderKeyId ? {keyId: holderKeyId} : {}),
           ...(holderDid ? {did: holderDid} : {}),
+          ...(auth.mode === "grant" ? {signGrant: auth.signGrant} : {}),
         },
       });
 

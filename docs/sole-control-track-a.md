@@ -1,6 +1,6 @@
 # Sole-control Track A (cloud / WP HSM) — contracts
 
-**Status:** G0 done · **G1 enforcement landed** (flag still default off)  
+**Status:** G0–G2 done · **G3** flag-on smoke / mobile next (flag still default off)  
 **Flag:** `SOLE_CONTROL_SIGNING` (default `false` — legacy PIN session still works)  
 **Related:** [`key-creation-architecture.md`](key-creation-architecture.md) · `TODO.md` **P3-SC**
 
@@ -97,7 +97,7 @@ Add fields (backward compatible):
 | `accountId` | yes | SoftHSM / WSCA account |
 | `keyId` | yes | Must be SECDSA key in this wallet |
 | `purpose` | yes | `issuance` \| `presentation` \| `keygen` (keygen optional later) |
-| `pin` | conditional | Required until G2 presence path; used **once** to prove SoftHSM unlock for mint, not stored for ongoing SIGN when flag on |
+| `pin` | yes (mint) | SoftHSM unlock proof at mint; UI gets it from PRF restore or PIN step-up after WebAuthn presence (G2). Not stored for ongoing SIGN when flag on |
 | `binding` | recommended | Opaque context; G3 binds receive/present |
 
 **Response `201`**
@@ -165,7 +165,7 @@ Compose: pass through `wallet-api2` environment (see `.env.example`).
 |-------|-------------|
 | **G0** | This doc + flag + status field + API sketch frozen |
 | **G1** | `SignGrantStore`, authorize-sign, **enforce** on receive/present/`sign-proof` behind flag; demo `/keys/…/sign` disabled when flag on |
-| **G2** | WebAuthn window + consent sheet; PIN step-up; UI sends `signGrant` |
+| **G2** | WebAuthn window + consent sheet; PIN step-up; UI sends `signGrant` (**done**) |
 | **G3** | receive/present + mobile + smoke + gate demo sign |
 | **G4** | Challenge–response option, audit, adapter docs |
 | **G5** | README honesty, HSM decision gate |

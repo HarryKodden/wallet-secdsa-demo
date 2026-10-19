@@ -1,6 +1,9 @@
 import {defineStore} from "pinia";
 import {ref} from "vue";
 
+/** Align with wallet-api2 SignGrant TTL (docs/sole-control-track-a.md). */
+export const SIGNING_WINDOW_TTL_MS = 180_000;
+
 /**
  * Holds PRF-derived secrets for this browser session.
  * Memory only — never serialised, never sent to any server.
@@ -23,6 +26,17 @@ export const useSecurityStore = defineStore("securityStore", () => {
     /** accountId the cached secdsaPin was validated for. */
     const secdsaPinAccountId = ref<string | null>(null);
 
+    /**
+     * Track G2 signing window — wall-clock expiry after passkey presence.
+     * Cleared on visibility hidden / timeout; does not revoke server SignGrant.
+     */
+    const signingWindowExpiresAt = ref<number | null>(null);
+
+    /** Last opaque SignGrant id held in this tab (cleared with the window). */
+    const pendingSignGrant = ref<string | null>(null);
+
+    let windowTimer: ReturnType<typeof setTimeout> | null = null;
+
     function setKey(key: CryptoKey, accountId: string) {
         prfKey.value = key;
         prfAccountId.value = accountId;
@@ -37,12 +51,53 @@ export const useSecurityStore = defineStore("securityStore", () => {
         secdsaPinAccountId.value = pin !== null ? accountId : null;
     }
 
+    function clearSigningWindow() {
+        signingWindowExpiresAt.value = null;
+        pendingSignGrant.value = null;
+        if (windowTimer != null) {
+            clearTimeout(windowTimer);
+            windowTimer = null;
+        }
+    }
+
+    function openSigningWindow(ttlMs: number = SIGNING_WINDOW_TTL_MS) {
+        signingWindowExpiresAt.value = Date.now() + ttlMs;
+        if (windowTimer != null) clearTimeout(windowTimer);
+        windowTimer = setTimeout(() => {
+            clearSigningWindow();
+        }, ttlMs);
+    }
+
+    function isSigningWindowOpen(): boolean {
+        const exp = signingWindowExpiresAt.value;
+        return exp != null && Date.now() < exp;
+    }
+
+    function setPendingSignGrant(grant: string | null) {
+        pendingSignGrant.value = grant;
+    }
+
     function clearKey() {
         prfKey.value = null;
         prfAccountId.value = null;
         secdsaPin.value = null;
         secdsaPinAccountId.value = null;
+        clearSigningWindow();
     }
 
-    return {prfKey, prfAccountId, secdsaPin, secdsaPinAccountId, setKey, setSecdsaPin, clearKey};
+    return {
+        prfKey,
+        prfAccountId,
+        secdsaPin,
+        secdsaPinAccountId,
+        signingWindowExpiresAt,
+        pendingSignGrant,
+        setKey,
+        setSecdsaPin,
+        clearKey,
+        openSigningWindow,
+        clearSigningWindow,
+        isSigningWindowOpen,
+        setPendingSignGrant,
+    };
 });

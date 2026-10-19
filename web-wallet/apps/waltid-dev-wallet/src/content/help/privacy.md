@@ -15,7 +15,8 @@ This application is an **educational proof of concept**. It is not a production 
 | SECDSA key metadata (public JWK, SoftHSM key id, lab URL) | Postgres | **Private keys never leave SoftHSM** |
 | SoftHSM private key material | SECDSA lab (memory WSCD) | Cleared if the `secdsa` container is recreated |
 | SoftHSM PIN (session) | wallet-api2 process memory after unlock | **Legacy demo path** — enables remote SIGN while unlocked |
-| SignGrant (Track G) | wallet-api2 process memory after `authorize-sign` | Short-lived; intended to replace free-floating PIN SIGN when `SOLE_CONTROL_SIGNING=true` — see `docs/sole-control-track-a.md` |
+| SignGrant (Track G) | wallet-api2 process memory after `authorize-sign` | Short-lived (≈3 min, single-use); required for Accept/Present when `SOLE_CONTROL_SIGNING=true` |
+| Signing window (browser) | Tab memory after passkey presence | Cleared on hide/timeout; does **not** claim certified LoA High — see `docs/sole-control-track-a.md` |
 | Login session (email / OIDC) | HTTP-only cookies via the Nuxt auth routes | Used to gate the UI for this demo |
 
 Credentials you accept from external issuers (for example a sandbox OID4VCI agent) are stored in your local Postgres volume so you can present them later.
