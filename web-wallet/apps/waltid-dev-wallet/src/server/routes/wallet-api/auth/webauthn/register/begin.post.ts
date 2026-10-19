@@ -2,7 +2,7 @@ import {generateRegistrationOptions} from "@simplewebauthn/server";
 import {getCookie} from "h3";
 import {walletApi2Account} from "../../../../../utils/walletApi2Auth";
 import {createChallenge, listCredentials} from "../../../../../utils/webauthnStore";
-import {getWebAuthnConfig} from "../../../../../utils/webauthnConfig";
+import {getWebAuthnConfig, webauthnCookieOptions} from "../../../../../utils/webauthnConfig";
 
 /**
  * Step 1 of passkey registration.
@@ -25,16 +25,19 @@ export default defineEventHandler(async (event) => {
     const body = await readBody(event).catch(() => null) ?? {};
     const attachment = (body as any)?.attachment as AuthenticatorAttachment | undefined;
 
+    // WebAuthn user.id must be ≤ 64 bytes (UUID is fine; guard long ids).
+    const userIdBytes = new TextEncoder().encode(account.accountId).slice(0, 64);
+
     const options = await generateRegistrationOptions({
         rpName,
         rpID: rpId,
         userName: account.email || account.accountId,
         userDisplayName: account.email || account.accountId,
-        userID: new TextEncoder().encode(account.accountId),
+        userID: userIdBytes,
         attestationType: "none",
         authenticatorSelection: {
             residentKey: "preferred",
-            userVerification: "required",
+            userVerification: "preferred",
             ...(attachment ? {authenticatorAttachment: attachment} : {}),
         },
         extensions: {
@@ -48,26 +51,16 @@ export default defineEventHandler(async (event) => {
         })),
     });
 
-    // Persist challenge for this account (consumed at /finish)
+    // Keep server-side challenge map warm (debug / future); cookie is authoritative.
     createChallenge(account.accountId);
 
-    // Store the actual challenge from simplewebauthn in our store
-    // (simplewebauthn generates it internally; we re-use it via cookie for stateless servers
-    // but here we keep the server-side store approach matching pairStore)
-    setCookie(event, "webauthn.challenge", options.challenge, {
-        httpOnly: true,
-        sameSite: "strict",
-        path: "/",
-        secure: false,
-        maxAge: 60 * 3,
-    });
-    setCookie(event, "webauthn.accountId", account.accountId, {
-        httpOnly: true,
-        sameSite: "strict",
-        path: "/",
-        secure: false,
-        maxAge: 60 * 3,
-    });
+    const cookieOpts = webauthnCookieOptions(event);
+    setCookie(event, "webauthn.challenge", options.challenge, cookieOpts);
+    setCookie(event, "webauthn.accountId", account.accountId, cookieOpts);
+
+    console.info(
+        `[webauthn/register/begin] rpId=${rpId} origin=${origin} attachment=${attachment ?? "any"}`,
+    );
 
     return options;
 });

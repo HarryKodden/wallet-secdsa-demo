@@ -1,0 +1,11 @@
+**/node_modules
+**/.nuxt
+**/.output
+**/.cache
+**/dist
+**/.git
+**/*.md
+**/.DS_Store
+**/coverage
+**/.turbo
+apps/waltid-dev-wallet/.data

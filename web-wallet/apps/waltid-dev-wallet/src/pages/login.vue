@@ -154,16 +154,41 @@ function connectOidc() {
  * Register a new passkey then immediately re-assert with PRF to derive the AES key.
  * Called from the passkey-setup panel that appears for first-time users.
  */
+function formatPasskeyError(err: unknown): string {
+    if (!err || typeof err !== "object") return "Passkey registration failed — please try again.";
+    const e = err as {
+        name?: string;
+        message?: string;
+        statusMessage?: string;
+        data?: {statusMessage?: string; message?: string};
+    };
+    if (e.name === "NotAllowedError") {
+        return "Passkey was cancelled or no authenticator is available in this browser. Try Chrome/Safari with a platform passkey, or a security key.";
+    }
+    if (e.name === "InvalidStateError") {
+        return "A passkey for this account already exists on this authenticator. Try signing in again.";
+    }
+    const detail =
+        e.statusMessage ||
+        e.data?.statusMessage ||
+        e.data?.message ||
+        e.message ||
+        "";
+    if (detail && !detail.includes("fetch")) return detail;
+    return "Passkey registration failed — please try again.";
+}
+
 async function registerAndAssert(accountId: string) {
     isRegisteringPasskey.value = true;
     errorMessage.value = "";
     try {
+        // Do not force authenticatorAttachment=platform — that fails on machines
+        // without Touch ID / Windows Hello (common on Linux desktops / remote sessions).
+        // Prefer platform when the OS offers it; otherwise allow security keys / hybrid.
         const beginRes = await $fetch("/wallet-api/auth/webauthn/register/begin", {
             method: "POST",
-            // Force platform authenticator (Touch ID / Windows Hello) so the native OS
-            // passkey manager handles it — browser-extension managers may intercept the
-            // generic request but do not forward PRF extensions to the authenticator.
-            body: {accountId, attachment: "platform"},
+            body: {accountId},
+            credentials: "include",
         });
 
         // IMPORTANT: @github/webauthn-json/browser-ponyfill's parse*FromJSON schema only
@@ -188,6 +213,7 @@ async function registerAndAssert(accountId: string) {
         const regJSON = credential.toJSON();
         await $fetch("/wallet-api/auth/webauthn/register/finish", {
             method: "POST",
+            credentials: "include",
             body: {
                 ...regJSON,
                 clientExtensionResults: {
@@ -206,7 +232,7 @@ async function registerAndAssert(accountId: string) {
         _passkeySetupResolve = null;
     } catch (err) {
         console.error("[passkey] Registration failed:", err);
-        errorMessage.value = "Passkey registration failed — please try again.";
+        errorMessage.value = formatPasskeyError(err);
     } finally {
         isRegisteringPasskey.value = false;
     }

@@ -1,4 +1,5 @@
 import type {H3Event} from "h3";
+import {getRequestURL} from "h3";
 
 export type WebAuthnConfig = {
     rpId: string;
@@ -6,31 +7,65 @@ export type WebAuthnConfig = {
     origin: string;
 };
 
+function originFromUrl(raw: string): {origin: string; rpId: string} | null {
+    try {
+        const u = new URL(raw);
+        const rpId = u.hostname;
+        const origin =
+            u.port && u.port !== "443" && u.port !== "80"
+                ? `${u.protocol}//${u.hostname}:${u.port}`
+                : `${u.protocol}//${u.hostname}`;
+        return {origin, rpId};
+    } catch {
+        return null;
+    }
+}
+
 /**
- * Derives the WebAuthn RP configuration from the public base URL.
- * In development (localhost) we use "localhost" as both rpId and origin host.
+ * WebAuthn RP config.
+ * Prefer the browser-facing public base (OIDC_BASE_URL); fall back to the
+ * request URL when proxies set X-Forwarded-* correctly.
  */
 export function getWebAuthnConfig(event: H3Event): WebAuthnConfig {
     const config = useRuntimeConfig(event);
-    const publicBaseUrl = String(
-        config.public.oidcPublicBaseUrl || config.public.walletPublicBaseUrl || "http://localhost:7115",
-    );
+    const configured = String(
+        config.public.oidcPublicBaseUrl ||
+            process.env.OIDC_BASE_URL ||
+            config.public.walletPublicBaseUrl ||
+            "",
+    ).trim();
 
-    let origin = publicBaseUrl.replace(/\/$/, "");
-    let rpId: string;
-    try {
-        const u = new URL(origin);
-        rpId = u.hostname;
-        // WebAuthn origin must include scheme + host + port (if non-standard)
-        origin = u.port && u.port !== "443" && u.port !== "80"
-            ? `${u.protocol}//${u.hostname}:${u.port}`
-            : `${u.protocol}//${u.hostname}`;
-    } catch {
-        rpId = "localhost";
-        origin = "http://localhost:7115";
+    let parsed = configured ? originFromUrl(configured) : null;
+
+    if (!parsed) {
+        try {
+            parsed = originFromUrl(getRequestURL(event).href);
+        } catch {
+            parsed = null;
+        }
+    }
+
+    if (!parsed) {
+        parsed = {origin: "http://localhost:7115", rpId: "localhost"};
     }
 
     const rpName = String(config.public.appName || "SECDSA Wallet");
+    return {rpId: parsed.rpId, rpName, origin: parsed.origin};
+}
 
-    return {rpId, rpName, origin};
+/** Cookie flags for short-lived WebAuthn challenge state. */
+export function webauthnCookieOptions(event: H3Event) {
+    let secure = false;
+    try {
+        secure = getRequestURL(event).protocol === "https:";
+    } catch {
+        secure = String(process.env.OIDC_BASE_URL || "").startsWith("https:");
+    }
+    return {
+        httpOnly: true,
+        sameSite: "lax" as const,
+        path: "/",
+        secure,
+        maxAge: 60 * 3,
+    };
 }

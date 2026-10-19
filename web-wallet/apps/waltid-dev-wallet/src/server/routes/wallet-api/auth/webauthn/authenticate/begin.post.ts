@@ -2,7 +2,7 @@ import {generateAuthenticationOptions} from "@simplewebauthn/server";
 import {getCookie} from "h3";
 import {walletApi2Account} from "../../../../../utils/walletApi2Auth";
 import {findCredentialsForAccount, hasCredentials} from "../../../../../utils/webauthnStore";
-import {getWebAuthnConfig} from "../../../../../utils/webauthnConfig";
+import {getWebAuthnConfig, webauthnCookieOptions} from "../../../../../utils/webauthnConfig";
 
 /**
  * Step 1 of passkey authentication.
@@ -53,20 +53,9 @@ export default defineEventHandler(async (event) => {
         extensions: {prf: {}} as any,
     });
 
-    setCookie(event, "webauthn.challenge", options.challenge, {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: false,
-        maxAge: 60 * 3,
-    });
-    setCookie(event, "webauthn.accountId", accountId, {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: false,
-        maxAge: 60 * 3,
-    });
+    const cookieOpts = webauthnCookieOptions(event);
+    setCookie(event, "webauthn.challenge", options.challenge, cookieOpts);
+    setCookie(event, "webauthn.accountId", accountId, cookieOpts);
 
     return {...options, resolvedAccountId: accountId};
 });
