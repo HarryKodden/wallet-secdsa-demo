@@ -79,6 +79,8 @@ services:
     environment:
       ISSUER_API2_PORT: "7005"
       SERVICE_HOST: ${SERVICE_HOST:-host.docker.internal}
+      # Optional public FQDN for offers (overrides SERVICE_HOST in issuer-service.conf).
+      ISSUER_PUBLIC_BASE_URL: ${ISSUER_PUBLIC_BASE_URL:-}
       # User-login AS for AUTHORIZED / authorization_code offers (authentication-service.conf)
       ISSUER_AS_NAME: ${ISSUER_AS_NAME:-keycloak}
       ISSUER_AS_AUTHORIZE_URL: ${ISSUER_AS_AUTHORIZE_URL:-https://keycloak.demo.walt.id/realms/mynewrealm/protocol/openid-connect/auth}
@@ -128,6 +130,8 @@ services:
       # Local lab UI — empty/unset hides the Scan lab panels. Set to enable:
       ISSUER_API2_INTERNAL_URL: ${ISSUER_API2_INTERNAL_URL:-}
       VERIFIER_API2_INTERNAL_URL: ${VERIFIER_API2_INTERNAL_URL:-}
+      # Rewrite Lab offers that still say localhost:7005 (wallet-api2 cannot fetch that).
+      ISSUER_PUBLIC_BASE_URL: ${ISSUER_PUBLIC_BASE_URL:-}
       WALLET_API2_PROXY: ${WALLET_API2_PROXY:-http://wallet-api2:7006}
       # Lab auth-code: mirror issuer AS (non-secret) + enable flag
       ISSUER_AS_AUTHORIZE_URL: ${ISSUER_AS_AUTHORIZE_URL:-}

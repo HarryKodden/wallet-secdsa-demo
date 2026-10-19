@@ -1,4 +1,5 @@
 import { issuerApi2Base, labFetch, readUpstreamJson } from "../../../utils/labApis";
+import { rewriteLabIssueResponse } from "../../../utils/labOfferUrls";
 
 type IssueBody = {
     profileId?: string;
@@ -58,5 +59,8 @@ export default defineEventHandler(async (event) => {
         body: JSON.stringify(payload),
     });
 
-    return readUpstreamJson(upstream);
+    const body = await readUpstreamJson<Record<string, unknown>>(upstream);
+    // Stock issuer images bake baseUrl=http://localhost:7005; wallet-api2 cannot
+    // fetch that from inside the cluster/compose network. Rewrite to public base.
+    return rewriteLabIssueResponse(body);
 });
