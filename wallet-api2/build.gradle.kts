@@ -112,32 +112,9 @@ tasks.register<Copy>("installDistToDist") {
     doLast {
         delete(
             fileTree(layout.projectDirectory.dir("dist/lib")) {
-                include(
-                    "bcprov-jdk18on-*.jar",
-                    "bcpkix-jdk18on-*.jar",
-                    "bcutil-jdk18on-*.jar",
-                    // Overlay in waltid-wallet-api2-secdsa.jar must win; drop stock jar so
-                    // classpath cannot load the unpatched DecentralizedIdentifier.
-                    "waltid-openid4vp-clientidprefix-jvm-*.jar",
-                )
+                include("bcprov-jdk18on-*.jar", "bcpkix-jdk18on-*.jar", "bcutil-jdk18on-*.jar")
             }
         )
-        // Rewrite start scripts so CLASSPATH no longer references the deleted jar.
-        val binDir = layout.projectDirectory.dir("dist/bin").asFile
-        if (binDir.isDirectory) {
-            binDir.listFiles()?.forEach { script ->
-                if (!script.isFile) return@forEach
-                val text = script.readText()
-                val updated = text.replace(
-                    Regex(""":?\$APP_HOME/lib/waltid-openid4vp-clientidprefix-jvm-[^:]*\.jar"""),
-                    "",
-                ).replace(
-                    Regex(""":?%APP_HOME%\\\\lib\\\\waltid-openid4vp-clientidprefix-jvm-[^;]*\.jar"""),
-                    "",
-                )
-                if (updated != text) script.writeText(updated)
-            }
-        }
     }
 }
 
