@@ -198,11 +198,10 @@ export default defineNuxtConfig({
 
     runtimeConfig: {
         // Server-only — used by Nitro OIDC callback (never expose to the browser).
-        oidcClientSecret: process.env.NUXT_OIDC_CLIENT_SECRET || process.env.OIDC_CLIENT_SECRET || "",
+        // Canonical names: OIDC_* / OID4VCI_* — see server/utils/oidcEnv.ts.
+        oidcClientSecret: process.env.OIDC_CLIENT_SECRET || "",
         oidcTokenUrl:
-            process.env.NUXT_OIDC_TOKEN_URL ||
-            process.env.NUXT_PUBLIC_OIDC_TOKEN_URL ||
-            "https://oidc.pilot1.sram.surf.nl/token",
+            process.env.OIDC_TOKEN_URL || "https://oidc.pilot1.sram.surf.nl/token",
         walletApi2Proxy: process.env.WALLET_API2_PROXY || "http://wallet-api2:7006",
         // Server-only Lab proxies (browser never talks to issuer/verifier directly).
         // Empty = Lab UI/API disabled; local compose injects service DNS when present.
@@ -211,36 +210,33 @@ export default defineNuxtConfig({
         public: {
             projectId: process.env.ProjectId,
             // Release tag (e.g. v0.1.0) — shown as the corner ribbon; set at image build.
-            // theme-version corner ribbon (local default DEV; release builds pass vX.Y.Z).
-            appVersion: process.env.NUXT_PUBLIC_APP_VERSION || "DEV",
+            appVersion: process.env.APP_VERSION || "DEV",
             issuerCallbackUrl: "http://localhost:7100",
             credentialsRepositoryUrl: "http://localhost:3000",
             demoWalletUrl: "https://wallet-dev.walt.id",
-            oidcAuthorizeUrl: process.env.NUXT_PUBLIC_OIDC_AUTHORIZE_URL || "https://oidc.pilot1.sram.surf.nl/authorize",
-            oidcClientId: process.env.NUXT_PUBLIC_OIDC_CLIENT_ID || process.env.OIDC_CLIENT_ID || "",
+            oidcAuthorizeUrl:
+                process.env.OIDC_AUTHORIZE_URL ||
+                "https://oidc.pilot1.sram.surf.nl/authorize",
+            oidcClientId: process.env.OIDC_CLIENT_ID || "",
             // Must match the redirect URI registered at the IdP (classic wallet-api contract).
             oidcRedirectUri:
-                process.env.NUXT_PUBLIC_OIDC_REDIRECT_URI ||
+                process.env.OIDC_REDIRECT_URI ||
                 "http://localhost:7115/wallet-api/auth/oidc-session",
-            oidcPublicBaseUrl: process.env.NUXT_PUBLIC_OIDC_PUBLIC_BASE_URL || "http://localhost:7115",
-            oidcScopes: process.env.NUXT_PUBLIC_OIDC_SCOPES || "openid email profile",
+            oidcPublicBaseUrl: process.env.OIDC_BASE_URL || "http://localhost:7115",
+            oidcScopes: process.env.OIDC_SCOPES || "openid email profile",
             // Phone-reachable wallet-api2 origin (TLS FQDN). Empty → local fallback only in pairingPublicUrls.
-            // Do not default to localhost here — that gets advertised into pairing QRs on public deploys.
-            walletApi2PublicBaseUrl:
-                process.env.NUXT_PUBLIC_WALLET_API2_BASE_URL ||
-                process.env.WALLET2_PUBLIC_BASE_URL ||
-                "",
-            // Inside compose, wallet-api2 reaches SECDSA as http://secdsa:8080
-            wscaBaseUrl: process.env.NUXT_PUBLIC_WSCA_BASE_URL || "http://secdsa:8080",
+            walletApi2PublicBaseUrl: process.env.WALLET2_PUBLIC_BASE_URL || "",
+            // SoftHSM from Nitro / browser — compose sets WSCA_INTERNAL_URL.
+            wscaBaseUrl:
+                process.env.WSCA_INTERNAL_URL ||
+                process.env.WSCA_BASE_URL ||
+                "http://secdsa:8080",
+            wscaAccountId: process.env.WSCA_ACCOUNT_ID || "citizen-42",
             // OID4VCI authorization_code client (separate from wallet login OIDC)
-            oid4vciClientId:
-                process.env.NUXT_PUBLIC_OID4VCI_CLIENT_ID ||
-                process.env.OID4VCI_CLIENT_ID ||
-                "wallet-secdsa-demo",
+            oid4vciClientId: process.env.OID4VCI_CLIENT_ID || "wallet-secdsa-demo",
             oid4vciRedirectUri:
-                process.env.NUXT_PUBLIC_OID4VCI_REDIRECT_URI ||
                 process.env.OID4VCI_REDIRECT_URI ||
-                "http://localhost:7115/oid4vci/callback",
+                `${(process.env.OIDC_BASE_URL || "http://localhost:7115").replace(/\/$/, "")}/oid4vci/callback`,
             // Issuer user-login AS (non-secret) — Lab auth-code UI; secret stays on issuer-api2
             issuerAsAuthorizeUrl: process.env.ISSUER_AS_AUTHORIZE_URL || "",
             issuerAsTokenUrl: process.env.ISSUER_AS_TOKEN_URL || "",

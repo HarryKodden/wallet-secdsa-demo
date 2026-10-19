@@ -21,11 +21,7 @@ export type WalletApi2Account = {
 };
 
 function oidcBridgeSecret(): string {
-    return (
-        process.env.OIDC_BRIDGE_SECRET ||
-        process.env.NUXT_OIDC_BRIDGE_SECRET ||
-        "wallet-secdsa-demo-oidc-bridge-dev-only"
-    );
+    return process.env.OIDC_BRIDGE_SECRET || "wallet-secdsa-demo-oidc-bridge-dev-only";
 }
 
 /** Stable password for JIT OIDC → wallet-api2 email/password accounts. */

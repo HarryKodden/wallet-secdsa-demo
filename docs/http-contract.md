@@ -9,7 +9,7 @@ Base URLs (local compose):
 |---------|------|--------|
 | Browser → Nitro | `/wallet-api/…` | Same-origin; Nitro proxies / implements |
 | Nitro → wallet-api2 | `WALLET_API2_PROXY` (e.g. `http://wallet-api2:7006`) | Injects `Authorization: Bearer` from cookie |
-| SoftHSM / WSCA | `NUXT_PUBLIC_WSCA_BASE_URL` / `http://secdsa:8080` | Unlock + adapter sign path |
+| SoftHSM / WSCA | `WSCA_INTERNAL_URL` / `http://secdsa:8080` | Unlock + adapter sign path |
 
 Auth model (not IdP JWT on wallet-api2): OIDC → Nitro JIT `POST /auth/register` +
 `POST /auth/emailpass` → cookie `auth.token` (wallet-api2 JWT).

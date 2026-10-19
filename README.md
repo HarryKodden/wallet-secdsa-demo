@@ -374,7 +374,7 @@ Create a release (suggests the next patch tag; confirm or edit):
 # or: ./scripts/create-release.sh v0.2.0
 ```
 
-The web wallet builds with `NUXT_PUBLIC_APP_VERSION` set to that tag and shows it on the
+The web wallet builds with `APP_VERSION` set to that tag and shows it on the
 upper-right version ribbon.
 
 ## Web wallet only (host npm)
@@ -384,7 +384,8 @@ cd web-wallet
 npm install
 cd apps/waltid-dev-wallet
 WALLET_API2_PROXY=http://127.0.0.1:7006 \
-NUXT_PUBLIC_WSCA_BASE_URL=http://secdsa:8080 \
+WSCA_INTERNAL_URL=http://secdsa:8080 \
+OIDC_BASE_URL=http://localhost:7115 \
 npm run dev
 ```
 

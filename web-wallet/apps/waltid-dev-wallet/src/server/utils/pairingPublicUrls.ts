@@ -47,7 +47,7 @@ export function pairingPublicUrls(event?: H3Event): PairingPublicUrls {
 
     let web =
         (typeof publicCfg.oidcPublicBaseUrl === "string" && publicCfg.oidcPublicBaseUrl.trim()) ||
-        process.env.NUXT_PUBLIC_OIDC_PUBLIC_BASE_URL?.trim() ||
+        process.env.OIDC_BASE_URL?.trim() ||
         "";
 
     if (!web && event) {
@@ -64,7 +64,6 @@ export function pairingPublicUrls(event?: H3Event): PairingPublicUrls {
     let api =
         (typeof publicCfg.walletApi2PublicBaseUrl === "string" &&
             publicCfg.walletApi2PublicBaseUrl.trim()) ||
-        process.env.NUXT_PUBLIC_WALLET_API2_BASE_URL?.trim() ||
         process.env.WALLET2_PUBLIC_BASE_URL?.trim() ||
         "";
 
@@ -76,7 +75,7 @@ export function pairingPublicUrls(event?: H3Event): PairingPublicUrls {
             api = "";
             apiBaseIsLocalFallback = true;
             console.warn(
-                "[pairing] NUXT_PUBLIC_WALLET_API2_BASE_URL / WALLET2_PUBLIC_BASE_URL unset " +
+                "[pairing] WALLET2_PUBLIC_BASE_URL unset " +
                     `while web is ${web} — refusing to advertise http://localhost:7006`,
             );
         } else {
@@ -89,7 +88,7 @@ export function pairingPublicUrls(event?: H3Event): PairingPublicUrls {
     if (api && isPublicHttps(web) && isLocalHost(api)) {
         console.warn(
             `[pairing] wallet-api2 public URL looks local (${api}) while web is ${web}. ` +
-                "Set NUXT_PUBLIC_WALLET_API2_BASE_URL to your TLS API FQDN.",
+                "Set WALLET2_PUBLIC_BASE_URL to your TLS API FQDN.",
         );
         apiBaseIsLocalFallback = true;
     }
