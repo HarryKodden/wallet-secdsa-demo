@@ -448,17 +448,30 @@ object WalletIssuanceHandler {
 
     /**
      * Resolves a credential offer from any [CredentialOfferSource], handling both inline JSON
-     * and URL (openid-credential-offer://...) forms. Extracted to eliminate three identical
-     * if/else blocks across [receiveCredentialFlow], [resolveOffer], and [generateAuthorizationUrl].
+     * and URL (openid-credential-offer://...) forms.
+     *
+     * Fetches `credential_offer_uri` as text and decodes with [lenientJson] so the
+     * [CredentialOfferGrants] overlay (dual authorization_code + pre-authorized_code) is used.
+     * Stock CredentialOfferResolver typed-body decode still hits 0.23.1's mutual-exclusion check.
      */
-    private suspend fun resolveOffer(source: CredentialOfferSource, httpClient: HttpClient) =
+    private suspend fun resolveOffer(
+        source: CredentialOfferSource,
+        httpClient: HttpClient,
+    ): CredentialOffer {
         if (source.offerJson != null) {
-            val inlineOffer = lenientJson.decodeFromString<id.walt.openid4vci.offers.CredentialOffer>(source.getEffectiveOfferString())
-            CredentialOfferResolver(httpClient).resolveCredentialOffer(credentialOffer = inlineOffer, credentialOfferUri = null)
-        } else {
-            val req = CredentialOfferParser.parseCredentialOfferUrl(source.getEffectiveOfferString())
-            CredentialOfferResolver(httpClient).resolveCredentialOffer(credentialOffer = req.credentialOffer, credentialOfferUri = req.credentialOfferUri)
+            return lenientJson.decodeFromString(
+                CredentialOffer.serializer(),
+                source.getEffectiveOfferString(),
+            )
         }
+        val req = CredentialOfferParser.parseCredentialOfferUrl(source.getEffectiveOfferString())
+        req.credentialOffer?.let { return it }
+        val offerUri = req.credentialOfferUri?.takeIf { it.isNotBlank() }
+            ?: error("Credential offer URL must contain credential_offer or credential_offer_uri")
+        log.info { "Resolving credential offer from URI reference" }
+        val text = httpClient.get(offerUri).bodyAsText()
+        return lenientJson.decodeFromString(CredentialOffer.serializer(), text)
+    }
 
     /**
      * Builds a proof JWT.
