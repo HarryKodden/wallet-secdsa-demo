@@ -95,6 +95,17 @@ fun Route.registerSignGrantRoutes(
             return@post call.respond(HttpStatusCode.Forbidden, "Key '${body.keyId}' is not a SECDSA key")
         }
 
+        if (!SoleControlRateLimit.allowAuthorize(body.accountId) ||
+            !SoleControlRateLimit.allowPinAttempt(body.accountId)
+        ) {
+            SoleControlAudit.authorizeRateLimited(walletId, body.accountId)
+            return@post call.respond(
+                HttpStatusCode.TooManyRequests,
+                "Too many authorize-sign / PIN attempts — try again later",
+            )
+        }
+        SoleControlRateLimit.recordAuthorize(body.accountId)
+
         val pin = body.pin?.takeIf { it.isNotBlank() }
         if (pin == null) {
             return@post call.respond(
@@ -109,6 +120,8 @@ fun Route.registerSignGrantRoutes(
         runCatching {
             WscaClient(WscaConfig(baseUrl = wscaBase, accountId = body.accountId)).unlock(pin)
         }.onFailure {
+            SoleControlRateLimit.recordPinFail(body.accountId)
+            SoleControlAudit.authorizePinFailed(walletId, body.accountId)
             return@post call.respond(HttpStatusCode.BadRequest, it.localizedMessage ?: "SoftHSM unlock failed")
         }
 
@@ -132,6 +145,14 @@ fun Route.registerSignGrantRoutes(
             ttlSeconds = ttl,
             // Grant-scoped PIN so flag-on PoP/VP SIGN can reach SoftHSM without a leftover session.
             pin = if (SoleControlSigning.enabled()) pin else null,
+        )
+
+        SoleControlAudit.authorizeMinted(
+            walletId = walletId,
+            accountId = body.accountId,
+            keyId = body.keyId,
+            purpose = purpose,
+            grantId = grant.id,
         )
 
         val expiresAt = DateTimeFormatter.ISO_INSTANT.format(grant.expiresAt.atOffset(ZoneOffset.UTC))

@@ -340,12 +340,21 @@ Desired slogan:  Private key never leaves the user's wallet device.
 
 ## 7. Suggested next steps (if pursuing the desired model)
 
-**Track A (cloud / WP HSM sole-control) — preferred near-term path:** contracts and
-flag are in [`docs/sole-control-track-a.md`](sole-control-track-a.md); phased
-checklist in local [`TODO.md`](../TODO.md) **P3-SC**. Env: `SOLE_CONTROL_SIGNING`
-(default off). Next: G1 enforce grants on SIGN.
+**Track A (cloud / WP HSM sole-control) — G0–G5 landed:** contracts in
+[`docs/sole-control-track-a.md`](sole-control-track-a.md). Env:
+`SOLE_CONTROL_SIGNING` (**default off** = legacy PIN session for demos).
 
-**Track B (on-device keygen) — later:**
+| Mode | Holder SIGN authorization |
+|------|---------------------------|
+| Flag **off** (default) | **Deprecated for production intent:** `SecdsaPinSession` after unlock — wallet-api2 can SIGN until restart |
+| Flag **on** | **Target Track A path:** WebAuthn presence + consent → SignGrant → grant-scoped PIN for one receive/present |
+
+When flipping the default to on in a later release, treat the PIN-session path as
+removed from the LoA story (keep only for emergency rollback). SoftHSM lab vs
+production PKCS#11 / eIDAS HSM remains an **ops choice** (§9 of the sole-control doc)
+— not a claim of certified LoA High.
+
+**Track B (on-device keygen) — later / parked:**
 
 1. **Write down the non-negotiables** with the specialist: web-only vs mobile-first; WebCrypto vs TEE; whether wallet-api2 may still see plaintext credentials.  
 2. **Spike device-local P-256**: generate in browser WebCrypto (non-extractable), create `did:jwk`, sign a detached JWS, verify with walt.id policies.  
@@ -353,8 +362,8 @@ checklist in local [`TODO.md`](../TODO.md) **P3-SC**. Env: `SOLE_CONTROL_SIGNING
 4. **Reposition SECDSA**: on-device lab vs retire remote holder KMS for this product track.  
 5. **Update threat model / privacy help** once the new boundary is chosen — do not claim EUDI LoA High without a certified WSCD path.
 
-Until Track A G0–G3 land, treat remote GENKEY/SIGN with a cached PIN session as an
-**intentional PoC shortcut**, not as the target production key architecture.
+Remote GENKEY remains the key **placement** for Track A; sole-control is about
+**who may instruct SIGN**, not moving `d` into the browser.
 
 ---
 

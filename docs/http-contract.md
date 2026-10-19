@@ -111,6 +111,7 @@ Optional / best-effort: `GET /wallet-api/transaction-data-profiles` (ignore if 4
    not trusted from the client alone.
 4. Wallet-api2 builds from Maven walt.id + in-repo `secdsa-waltid-adapter`
    (no waltid-identity checkout). Key generate is SECDSA-only.
-5. Track G: when `SOLE_CONTROL_SIGNING=true`, receive/present require
-   `signGrant` from `authorize-sign` (G0–G3). Unlock does not leave free SIGN.
-   Smoke: `./scripts/smoke-sole-control-grant.sh`. Default off.
+5. Track G (G0–G5): when `SOLE_CONTROL_SIGNING=true`, receive/present require
+   `signGrant` from `authorize-sign`. Unlock does not leave free SIGN.
+   authorize-sign may return `429` when rate-limited. Smoke:
+   `./scripts/smoke-sole-control-grant.sh`. Default off.

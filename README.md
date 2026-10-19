@@ -54,10 +54,10 @@ Keep published ports on localhost. Rotate demo keys before any non-local use.
 Avoid `docker compose down -v` unless you intend to wipe Postgres and accounts.
 After restarting only `secdsa`, regenerate keys/DIDs (lab WSCD is in-memory).
 
-**SECDSA is not certified LoA High / QEAA.** The SoftHSM lab binds holder keys in
-hardware for demos only — it is **not** an eIDAS high-assurance or EUDI wallet
-product. See [NOTICE](NOTICE) and
-[SECDSA USAGE.md](https://github.com/HarryKodden/SECDSA/blob/main/USAGE.md).
+**SECDSA is not certified LoA High / QEAA.** The SoftHSM lab binds holder keys for
+demos only — it is **not** an eIDAS high-assurance, QEAA, or EUDI wallet product.
+This demo does **not** claim DIIP/FIDES/EUDI catalog readiness. See [NOTICE](NOTICE)
+and [SECDSA USAGE.md](https://github.com/HarryKodden/SECDSA/blob/main/USAGE.md).
 
 **Where is the holder private key created?** In the SECDSA lab (remote GENKEY),
 **not** in the wallet frontend. Current vs device-side keygen is documented in
@@ -71,17 +71,18 @@ These are **demo labels**, not a certified assurance scheme.
 | Factor | What it proves | Lost / rotated when… |
 |--------|----------------|----------------------|
 | Browser session cookie (`auth.token`) | walt.id account JWT for API calls | Logout, cookie expiry, Nitro/session wipe |
-| WebAuthn passkey | User presence + authenticator for login / pair gate | Passkey deleted on authenticator or server credential revoke |
+| WebAuthn passkey | User presence + authenticator for login / pair / signing window | Passkey deleted on authenticator or server credential revoke |
 | Device pair JWT | Phone holds a one-shot exchange of the web session JWT | Pair revoke, JWT expiry (re-scan QR) |
-| OID4VP present + SECDSA PIN | **Legacy:** SoftHSM PIN unlocked in wallet-api2 → remote SIGN | Wrong PIN / SoftHSM wipe → regenerate key + DID + **re-receive** VC |
-| SignGrant (Track G, flag off by default) | Short-lived authorize-sign grant for one receive/present | Grant TTL (3 min) or consume; see [docs/sole-control-track-a.md](docs/sole-control-track-a.md) |
-| PRF-encrypted PIN blob | Browser can unlock SoftHSM without retyping PIN after passkey get() | See APP_SALT / passkey notes below |
+| SoftHSM PIN (legacy session) | Flag **off:** unlock ⇒ remote SIGN until restart | Wrong PIN / SoftHSM wipe → regenerate key + DID + **re-receive** VC |
+| SignGrant (Track G) | Flag **on:** presence + consent + short grant for one Accept/Present | Grant TTL (3 min) or consume; see [docs/sole-control-track-a.md](docs/sole-control-track-a.md) |
+| PRF-encrypted PIN blob | Browser can restore SoftHSM PIN after passkey get() for grant mint | See APP_SALT / passkey notes below |
 
-**Track G (G0–G3):** `SOLE_CONTROL_SIGNING=true` requires presence + consent + SignGrant
-for Accept/Present; unlock alone cannot leave free SIGN; demo `/keys/{id}/sign` is 403.
-Default remains `false` (legacy PIN session). Flag-on smoke:
-`./scripts/smoke-sole-control-grant.sh`. Rollback: unset/false + recreate `wallet-api2`.
-Details: [docs/sole-control-track-a.md](docs/sole-control-track-a.md).
+**Track G (G0–G5 done):** `SOLE_CONTROL_SIGNING=true` requires presence + consent +
+SignGrant for Accept/Present; unlock alone cannot leave free SIGN; demo
+`/keys/{id}/sign` is 403; in-process rate-limit + redacted audit. Default remains
+`false` (legacy PIN session). Flag-on smoke: `./scripts/smoke-sole-control-grant.sh`.
+Rollback: unset/false + recreate `wallet-api2`. Ops choice SoftHSM lab vs production
+PKCS#11/eIDAS HSM: [docs/sole-control-track-a.md](docs/sole-control-track-a.md) §9.
 
 **APP_SALT / PRF blobs:** each walt.id account has a random `APP_SALT` in IndexedDB
 (domain separator for WebAuthn PRF → AES-GCM). It is **not** a secret, but if you

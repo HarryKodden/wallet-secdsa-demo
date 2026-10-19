@@ -1,6 +1,6 @@
 # Sole-control Track A (cloud / WP HSM) — contracts
 
-**Status:** G0–G3 done · **G4** harden next (flag still default off)  
+**Status:** G0–G5 done (flag still default off)  
 **Flag:** `SOLE_CONTROL_SIGNING` (default `false` — legacy PIN session still works)  
 **Related:** [`key-creation-architecture.md`](key-creation-architecture.md) · `TODO.md` **P3-SC**
 
@@ -15,7 +15,7 @@
 | Accept / Present only check “is PIN unlocked?” | **Not** sole control — backend is a co-signer while unlocked |
 
 **Legacy path (flag off):** keep current unlock session for demos/smoke.  
-**Target path (flag on):** SIGN requires a short-lived **SignGrant** minted after user presence (+ later consent UX).
+**Target path (flag on):** SIGN requires a short-lived **SignGrant** minted after user presence + consent.
 
 ---
 
@@ -64,8 +64,6 @@ Paths under `/wallet/{walletId}/keys/secdsa/…`.
 
 `GET /wallet/{walletId}/keys/secdsa/status?accountId=…`
 
-Add fields (backward compatible):
-
 | Field | Type | Meaning |
 |-------|------|---------|
 | `soleControlSigning` | boolean | `SOLE_CONTROL_SIGNING` env |
@@ -97,26 +95,14 @@ Add fields (backward compatible):
 | `accountId` | yes | SoftHSM / WSCA account |
 | `keyId` | yes | Must be SECDSA key in this wallet |
 | `purpose` | yes | `issuance` \| `presentation` \| `keygen` (keygen optional later) |
-| `pin` | yes (mint) | SoftHSM unlock proof at mint; UI gets it from PRF restore or PIN step-up after WebAuthn presence (G2). Not stored for ongoing SIGN when flag on |
-| `binding` | recommended | Opaque context; G3 binds receive/present |
+| `pin` | yes (mint) | SoftHSM unlock proof at mint; UI gets it from PRF restore or PIN step-up after WebAuthn presence (G2). Bound to grant when flag on — not a free session |
+| `binding` | recommended | Soft-checked on consume when expected context is supplied |
 
-**Response `201`**
+**Response `201`** — `{ signGrant, purpose, keyId, expiresAt, ttlSeconds, soleControlSigning }`
 
-```json
-{
-  "signGrant": "<opaque>",
-  "purpose": "issuance",
-  "keyId": "secdsa:…:1",
-  "expiresAt": "2026-10-19T08:05:00Z",
-  "ttlSeconds": 180
-}
-```
-
-**Errors:** `400` bad body; `403` key not in wallet; `401` auth; SoftHSM unlock fail → `400` with message.
+**Errors:** `400` bad body / SoftHSM unlock fail; `403` key not in wallet; `401` auth; `429` rate limited.
 
 ### 4.3 Consume grant (receive / present)
-
-Extend existing bodies (additive):
 
 | Endpoint | New field |
 |----------|-----------|
@@ -133,15 +119,12 @@ When flag **false**: ignore `signGrant`; legacy `SecdsaPinSession` behavior unch
 ### 4.4 Demo sign route
 
 `POST …/keys/{keyId}/sign` — when flag on: **always 403** (`sign_grant_required`).
-Use authorize-sign + receive/present. No grant bypass on this demo endpoint.
 
 ### 4.5 Grant-scoped SoftHSM PIN (G3)
 
-When flag on, `authorize-sign` proves the PIN then **binds it to the SignGrant**
-(process memory). `SignGrantGuard` installs that PIN into `SecdsaPinSession` only
-for the receive/present request that consumes the grant, then clears it.
-`POST …/secdsa/unlock` still verifies SoftHSM but does **not** leave a PIN session
-for free SIGN (mobile pair included — mint a grant before receive/present).
+When flag on, `authorize-sign` proves the PIN then **binds it to the SignGrant**.
+`SignGrantGuard` installs that PIN into `SecdsaPinSession` only for the consume
+request, then clears it. Unlock verifies SoftHSM but does **not** leave free SIGN.
 
 ---
 
@@ -153,7 +136,7 @@ for free SIGN (mobile pair included — mint a grant before receive/present).
 | Grant use | **Single-use** | One grant → one SIGN chain for that receive or present call |
 | Multi-credential present | One grant covers all SIGNs inside **one** `present` request | Avoid N prompts mid-flight |
 | Signing window (client, G2) | Align with grant TTL; clear on `visibilitychange` hidden | Fresh presence next act |
-| PIN in `SecdsaPinSession` when flag on | **Do not use for SIGN** after G1 | May still briefly unlock lab during grant mint |
+| PIN in `SecdsaPinSession` when flag on | Grant-scoped only | Cleared after consume request |
 
 ---
 
@@ -164,23 +147,25 @@ for free SIGN (mobile pair included — mint a grant before receive/present).
 | `SOLE_CONTROL_SIGNING` | `false` / unset | Legacy PIN session SIGN (current demo) |
 | `SOLE_CONTROL_SIGNING=true` | — | Enforce SignGrant on holder SIGN paths (G1–G3) |
 
-Compose: `wallet-api2` reads the env (see `.env.example` / `docker-compose.yml`).
-
-**Enable (local):**
+**Enable:**
 
 ```bash
 SOLE_CONTROL_SIGNING=true docker compose up -d --force-recreate wallet-api2
 ./scripts/smoke-sole-control-grant.sh
-# Optional live OID4VC:
-# SMOKE_OFFER_URI='openid-credential-offer://…' ./scripts/smoke-sole-control-grant.sh
 ```
 
-**Rollback:** set `SOLE_CONTROL_SIGNING=false` (or unset) and
-`docker compose up -d --force-recreate wallet-api2`. Legacy unlock session SIGN returns.
-Web UI auto-detects via `GET …/secdsa/status` (`soleControlSigning`).
+**Rollback:** `SOLE_CONTROL_SIGNING=false` (or unset) + recreate `wallet-api2`.
 
-**Mobile pair:** same grant model when flag on — unlock alone is SoftHSM verify only;
-phone must call `authorize-sign` then pass `signGrant` on receive/present (web already does).
+**Rate limits (G4, in-process):**
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `SOLE_CONTROL_AUTHORIZE_RATE_MAX` | `30` | authorize-sign attempts / account / window |
+| `SOLE_CONTROL_PIN_FAIL_RATE_MAX` | `10` | SoftHSM PIN failures / account / window |
+| `SOLE_CONTROL_RATE_WINDOW_MS` | `300000` | Window (5 min) |
+
+Audit events (`SoleControl` in wallet event log + redacted logs): `authorize_sign`,
+`grant_consumed`, `grant_denied`. Never logs PIN or full grant ids.
 
 ---
 
@@ -189,15 +174,70 @@ phone must call `authorize-sign` then pass `signGrant` on receive/present (web a
 | Phase | Deliverable |
 |-------|-------------|
 | **G0** | This doc + flag + status field + API sketch frozen |
-| **G1** | `SignGrantStore`, authorize-sign, **enforce** on receive/present/`sign-proof` behind flag; demo `/keys/…/sign` disabled when flag on |
-| **G2** | WebAuthn window + consent sheet; PIN step-up; UI sends `signGrant` (**done**) |
-| **G3** | Grant-scoped PIN; unlock clears session when flag on; smoke + compose rollback docs; demo sign stays 403 (**done**) |
-| **G4** | Challenge–response option, audit, adapter docs |
-| **G5** | README honesty, HSM decision gate |
+| **G1** | Enforce SignGrant on receive/present/`sign-proof`; demo sign 403 |
+| **G2** | WebAuthn window + consent sheet; UI sends `signGrant` |
+| **G3** | Grant-scoped PIN; unlock clears session; smoke + rollback docs |
+| **G4** | Adapter SignGrant docs; audit + rate-limit; threat checklist; challenge–response sketch (**done**) |
+| **G5** | README LoA honesty; key-creation deprecate PIN path; HSM ops gate (**done**) |
 
 ---
 
-## 8. Non-goals
+## 8. G4 — Harden notes
+
+### 8.1 Adapter instruction model
+
+See [`secdsa-waltid-adapter/docs/ADAPTER.md`](../secdsa-waltid-adapter/docs/ADAPTER.md):
+SignGrant authorizes the act; PIN unlock session is legacy. NOTICE / patent terms
+unchanged — align with richer lab sole-control APIs when available (digest SIGN).
+
+### 8.2 Optional challenge–response (sketch)
+
+Not required for flag-on demos today. Soft binding already supports
+`binding.requestHash` on mint + match on consume when expected context is passed.
+
+```text
+UI: SHA-256(authz or VP context) → binding.requestHash on authorize-sign
+API2: soft-enforce on consume
+Future lab: SIGN(digest, grantRef) without PIN-on-every-instruct
+```
+
+### 8.3 Threat checklist (flag on)
+
+| Check | Status |
+|-------|--------|
+| wallet-api2 alone cannot Accept (receive PoP) without SignGrant | Yes — `SignGrantGuard` |
+| wallet-api2 alone cannot Present without SignGrant | Yes |
+| Demo `/keys/{id}/sign` cannot bypass | Yes — hard 403 |
+| Unlock does not leave PIN-forever for SIGN | Yes — session cleared |
+| Grant is single-use + TTL | Yes |
+| XSS during live signing window can still mint/consume | **Residual** — TTL + `visibilitychange` clear mitigate; not eliminated |
+| Rate-limit + redacted audit on mint / deny / PIN fail | Yes (in-process) |
+
+---
+
+## 9. G5 — Docs + decision gate
+
+### 9.1 What we claim / do not claim
+
+| Claim | Allowed? |
+|-------|----------|
+| Demo sole-control Track A with flag on (presence + consent + grant) | Yes |
+| SoftHSM lab binds keys for educational demos | Yes |
+| Certified LoA High / QEAA / eIDAS high | **No** |
+| DIIP / EUDI / FIDES wallet catalog readiness | **No** until evidence + WSCD ops decision |
+
+### 9.2 SoftHSM lab vs production HSM (ops choice)
+
+| Option | Use when | Notes |
+|--------|----------|--------|
+| **Compose SoftHSM / memory WSCD** (current) | Local demos, CI smoke | Keys die with container; not certified |
+| **Production PKCS#11 / eIDAS HSM** | Real deployments | Ops/procurement decision; adapter stays HTTP/instruct bridge; patent NOTICE still applies to SECDSA stack |
+
+Track A keeps keys in cloud/WP HSM placement. Track B (on-device keygen) is separate and parked.
+
+---
+
+## 10. Non-goals
 
 - On-device private key generation (Track B)
 - Browser WebCrypto holder keys

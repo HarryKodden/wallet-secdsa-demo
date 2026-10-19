@@ -23,6 +23,10 @@ SoftHSM / memory WSCD
 
 **Phase 1 in progress.** `SECDSAKey` subclasses walt.id `id.walt.crypto.keys.Key` and registers as backend `secdsa` on `KeyManager`. Interim lab HTTP still works (GENKEY via `userPub`, SIGN via `/api/judge/package` full Tr hex). Stable `/v1` in SECDSA remains the clean Path.
 
+**Sole-control (demo Track A):** holder SIGN authorization is a **SignGrant** in wallet-api2,
+not a long-lived adapter PIN unlock session. See [docs/ADAPTER.md](docs/ADAPTER.md) § Sole-control
+and the demo’s [`docs/sole-control-track-a.md`](../docs/sole-control-track-a.md).
+
 Plan: [docs/WALTID_ADAPTER_PLAN.md](docs/WALTID_ADAPTER_PLAN.md) · cheat-sheet: [docs/ADAPTER.md](docs/ADAPTER.md) ·
 Wallet API wiring: [docs/WALTID_WALLET_API.md](docs/WALTID_WALLET_API.md).
 

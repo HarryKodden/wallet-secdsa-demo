@@ -120,6 +120,10 @@ fun Route.registerSecdsaUnlockRoutes(
                 // Sole-control: SoftHSM activate/verify only — no PIN-forever session for SIGN.
                 if (SoleControlSigning.enabled()) {
                     SecdsaPinSession.clear(body.accountId)
+                    id.walt.wallet2.solecontrol.SoleControlAudit.unlockSessionCleared(
+                        walletId = call.parameters["walletId"] ?: "",
+                        accountId = body.accountId,
+                    )
                 }
                 body
             }.onSuccess { body ->

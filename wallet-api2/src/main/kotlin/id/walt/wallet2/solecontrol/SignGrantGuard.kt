@@ -26,6 +26,7 @@ object SignGrantGuard {
         if (!SoleControlSigning.enabled()) return SignGrantSession.NoOp
 
         if (signGrant.isNullOrBlank()) {
+            SoleControlAudit.grantDenied(walletId, purpose, "sign_grant_required")
             throw SignGrantException(
                 error = "sign_grant_required",
                 description =
@@ -43,11 +44,13 @@ object SignGrantGuard {
                 expectedBinding = expectedBinding,
             )
         } catch (e: IllegalStateException) {
+            SoleControlAudit.grantDenied(walletId, purpose, e.message ?: "invalid_or_expired")
             throw SignGrantException(
                 error = "sign_grant_invalid_or_expired",
                 description = e.message ?: "SignGrant invalid or expired",
             )
         } catch (e: IllegalArgumentException) {
+            SoleControlAudit.grantDenied(walletId, purpose, e.message ?: "rejected")
             throw SignGrantException(
                 error = "sign_grant_invalid_or_expired",
                 description = e.message ?: "SignGrant rejected",
@@ -56,12 +59,20 @@ object SignGrantGuard {
 
         val pin = grant.pin
         if (pin.isNullOrBlank()) {
+            SoleControlAudit.grantDenied(walletId, purpose, "missing_grant_pin")
             throw SignGrantException(
                 error = "sign_grant_invalid_or_expired",
                 description = "SignGrant has no SoftHSM PIN (re-mint via authorize-sign)",
             )
         }
         SecdsaPinSession.unlock(grant.accountId, pin)
+        SoleControlAudit.grantConsumed(
+            walletId = walletId,
+            accountId = grant.accountId,
+            keyId = grant.keyId,
+            purpose = purpose,
+            grantId = grant.id,
+        )
         return SignGrantSession.Active(grant.accountId)
     }
 }
