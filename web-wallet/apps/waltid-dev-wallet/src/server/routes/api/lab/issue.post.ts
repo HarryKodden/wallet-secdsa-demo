@@ -59,8 +59,8 @@ export default defineEventHandler(async (event) => {
         body: JSON.stringify(payload),
     });
 
-    const body = await readUpstreamJson<Record<string, unknown>>(upstream);
+    const upstreamBody = await readUpstreamJson<Record<string, unknown>>(upstream);
     // Stock issuer images bake baseUrl=http://localhost:7005; wallet-api2 cannot
     // fetch that from inside the cluster/compose network. Rewrite to public base.
-    return rewriteLabIssueResponse(body);
+    return rewriteLabIssueResponse(upstreamBody);
 });
