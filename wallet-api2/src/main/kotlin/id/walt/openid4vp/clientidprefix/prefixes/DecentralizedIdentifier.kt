@@ -85,23 +85,28 @@ data class DecentralizedIdentifier(val did: String, override val rawValue: Strin
         }
 
         internal suspend fun resolveVerificationKeys(did: String): Set<Key> {
-            val fromDid = DidService.resolveToKeys(did)
-            val didKeys = fromDid.getOrNull().orEmpty()
+            // walt.id DidService.resolveToKeys often *throws* on missing did.json
+            // (SURF OIDF) instead of returning Result.failure — catch so JWKS fallback runs.
+            val didResolve = runCatching { DidService.resolveToKeys(did) }
+            val didKeys = didResolve.getOrNull()?.getOrNull().orEmpty()
             if (didKeys.isNotEmpty()) return didKeys
 
+            val didErr =
+                didResolve.exceptionOrNull()
+                    ?: didResolve.getOrNull()?.exceptionOrNull()
+
             if (!did.startsWith("did:web:")) {
-                throw fromDid.exceptionOrNull()
-                    ?: IllegalStateException("No verification keys for $did")
+                throw didErr ?: IllegalStateException("No verification keys for $did")
             }
 
             log.warn {
-                "DID document resolve failed for $did (${fromDid.exceptionOrNull()?.message}); " +
+                "DID document resolve failed for $did (${didErr?.message}); " +
                     "trying openid-credential-verifier / JWKS fallback"
             }
             val fromJwks = resolveDidWebKeysFromVerifierJwks(did)
             if (fromJwks.isNotEmpty()) return fromJwks
 
-            throw fromDid.exceptionOrNull()
+            throw didErr
                 ?: IllegalStateException("No verification keys for $did (DID + JWKS fallback empty)")
         }
 
