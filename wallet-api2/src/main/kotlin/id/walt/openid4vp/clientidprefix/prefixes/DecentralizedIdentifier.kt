@@ -9,7 +9,7 @@ import id.walt.openid4vp.clientidprefix.ClientValidationResult
 import id.walt.openid4vp.clientidprefix.RequestContext
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.java.Java
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
@@ -38,8 +38,10 @@ data class DecentralizedIdentifier(val did: String, override val rawValue: Strin
         private val didRegex = "^did:[a-z0-9]+:.+".toRegex()
         private val json = Json { ignoreUnknownKeys = true }
 
+        // Prefer Java engine (same as WebDataFetcher) — CIO has failed silently in-cluster
+        // for SURF JWKS while Java HttpClient / curl succeed from the same pod.
         private val httpClient by lazy {
-            HttpClient(CIO) {
+            HttpClient(Java) {
                 expectSuccess = false
                 followRedirects = true
             }
@@ -113,18 +115,25 @@ data class DecentralizedIdentifier(val did: String, override val rawValue: Strin
         internal suspend fun resolveDidWebKeysFromVerifierJwks(did: String): Set<Key> {
             val base = didWebHttpsBase(did) ?: return emptySet()
             val jwksUri = fetchJwksUriForVerifier(base) ?: "$base/.well-known/jwks.json"
-            return fetchKeysFromJwksUri(jwksUri)
+            log.info { "Fetching verifier JWKS for $did from $jwksUri" }
+            val keys = fetchKeysFromJwksUri(jwksUri)
+            val kids = keys.map { key -> key.getKeyId() }
+            log.info { "JWKS fallback for $did loaded ${keys.size} key(s): $kids" }
+            return keys
         }
 
         private suspend fun fetchJwksUriForVerifier(base: String): String? {
             val metaUrl = "$base/.well-known/openid-credential-verifier"
             return runCatching {
                 val response = httpClient.get(metaUrl)
-                if (!response.status.isSuccess()) return null
+                if (!response.status.isSuccess()) {
+                    log.warn { "openid-credential-verifier HTTP ${response.status} for $metaUrl" }
+                    return null
+                }
                 val obj = json.parseToJsonElement(response.bodyAsText()).jsonObject
                 obj["jwks_uri"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
             }.onFailure {
-                log.debug(it) { "openid-credential-verifier fetch failed for $metaUrl" }
+                log.warn(it) { "openid-credential-verifier fetch failed for $metaUrl" }
             }.getOrNull()
         }
 
@@ -135,7 +144,11 @@ data class DecentralizedIdentifier(val did: String, override val rawValue: Strin
                 ?: return emptySet()
             return keysArr.mapNotNull { element ->
                 val jwk = element as? JsonObject ?: return@mapNotNull null
-                JWKKey.importJWK(jwk.toString()).getOrNull()
+                val jwkJson = json.encodeToString(JsonObject.serializer(), jwk)
+                JWKKey.importJWK(jwkJson).getOrElse { err ->
+                    log.warn(err) { "Failed to import JWKS key: $jwkJson" }
+                    null
+                }
             }.toSet()
         }
     }
@@ -158,7 +171,10 @@ data class DecentralizedIdentifier(val did: String, override val rawValue: Strin
             val keys = resolveVerificationKeys(clientId.did)
 
             val verificationKey = selectVerificationKey(keys, clientId.did, kid)
-                ?: throw IllegalArgumentException("Key ID '$kid' from JWS not found in DID document or JWKS.")
+                ?: throw IllegalArgumentException(
+                    "Key ID '$kid' from JWS not found in DID document or JWKS " +
+                        "(available: ${keys.map { it.getKeyId() }})",
+                )
 
             verificationKey.verifyJws(jws).getOrThrow()
 
@@ -167,7 +183,17 @@ data class DecentralizedIdentifier(val did: String, override val rawValue: Strin
             metadataJson
         }.fold(
             onSuccess = { ClientValidationResult.Success(it) },
-            onFailure = { ClientValidationResult.Failure(ClientIdError.DidResolutionFailed(it.message!!)) },
+            onFailure = { err ->
+                log.warn(err) {
+                    "DecentralizedIdentifier auth failed for ${clientId.did}: " +
+                        "${err::class.simpleName}: ${err.message}"
+                }
+                ClientValidationResult.Failure(
+                    ClientIdError.DidResolutionFailed(
+                        err.message ?: err::class.simpleName ?: "unknown error",
+                    ),
+                )
+            },
         )
     }
 }
