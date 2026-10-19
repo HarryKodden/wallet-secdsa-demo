@@ -566,7 +566,9 @@ object Wallet2RouteHandler {
                         summary = "Sign a payload as compact JWS"
                         description =
                             "Body is arbitrary JSON (serialized as JWT payload) or a Flattened JWS JSON " +
-                                "object with only `protected` + `payload`. SECDSA keys require an unlocked PIN session."
+                                "object with only `protected` + `payload`. SECDSA keys require an unlocked PIN session " +
+                                "(legacy). When SOLE_CONTROL_SIGNING=true this demo endpoint is disabled — use " +
+                                "authorize-sign + receive/present."
                         request {
                             pathParameter<String>("walletId")
                             pathParameter<String>("keyId")
@@ -575,6 +577,21 @@ object Wallet2RouteHandler {
                         response { HttpStatusCode.OK to { body<String>() } }
                     }) {
                         val wallet = call.resolveOrRespond(resolver, getAccountId) ?: return@post
+                        if (id.walt.wallet2.solecontrol.SoleControlSigning.enabled()) {
+                            call.respond(
+                                HttpStatusCode.Forbidden,
+                                id.walt.wallet2.server.ProtocolErrorBody(
+                                    error = "sign_grant_required",
+                                    error_description =
+                                        "Demo key sign disabled when SOLE_CONTROL_SIGNING=true. " +
+                                            "Use POST …/keys/secdsa/authorize-sign then receive/present.",
+                                    message =
+                                        "Demo key sign disabled when SOLE_CONTROL_SIGNING=true. " +
+                                            "Use POST …/keys/secdsa/authorize-sign then receive/present.",
+                                ),
+                            )
+                            return@post
+                        }
                         val keyId = call.parameters["keyId"]!!
                         val key = wallet.findKey(keyId)
                             ?: return@post call.respond(HttpStatusCode.NotFound, "Key '$keyId' not found")

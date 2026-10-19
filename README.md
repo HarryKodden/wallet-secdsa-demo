@@ -73,8 +73,13 @@ These are **demo labels**, not a certified assurance scheme.
 | Browser session cookie (`auth.token`) | walt.id account JWT for API calls | Logout, cookie expiry, Nitro/session wipe |
 | WebAuthn passkey | User presence + authenticator for login / pair gate | Passkey deleted on authenticator or server credential revoke |
 | Device pair JWT | Phone holds a one-shot exchange of the web session JWT | Pair revoke, JWT expiry (re-scan QR) |
-| OID4VP present + SECDSA PIN | Holder can SoftHSM-sign with the credential-bound key | Wrong PIN / SoftHSM wipe → regenerate key + DID + **re-receive** VC |
+| OID4VP present + SECDSA PIN | **Legacy:** SoftHSM PIN unlocked in wallet-api2 → remote SIGN | Wrong PIN / SoftHSM wipe → regenerate key + DID + **re-receive** VC |
+| SignGrant (Track G, flag off by default) | Short-lived authorize-sign grant for one receive/present | Grant TTL (3 min) or consume; see [docs/sole-control-track-a.md](docs/sole-control-track-a.md) |
 | PRF-encrypted PIN blob | Browser can unlock SoftHSM without retyping PIN after passkey get() | See APP_SALT / passkey notes below |
+
+**Track G direction:** `SOLE_CONTROL_SIGNING=true` moves toward sole control (presence +
+consent + SignGrant) so a leftover PIN session alone cannot SIGN. Default remains
+`false` until G1–G3 enforcement and UX land.
 
 **APP_SALT / PRF blobs:** each walt.id account has a random `APP_SALT` in IndexedDB
 (domain separator for WebAuthn PRF → AES-GCM). It is **not** a secret, but if you

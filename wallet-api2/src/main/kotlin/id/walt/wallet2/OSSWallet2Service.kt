@@ -9,6 +9,7 @@ import id.walt.wallet2.data.WalletKeyStore
 import id.walt.wallet2.server.StoreFactory
 import id.walt.wallet2.server.WalletResolver
 import id.walt.wallet2.server.handlers.Wallet2RouteHandler.registerWallet2Routes
+import id.walt.wallet2.solecontrol.registerSignGrantRoutes
 import id.walt.wallet2.stores.WalletStore
 import id.walt.wallet2.stores.inmemory.InMemoryCredentialStore
 import id.walt.wallet2.stores.inmemory.InMemoryDidStore
@@ -135,6 +136,7 @@ object OSSWallet2Service {
                     attestationAssembler = attestationAssembler,
                 )
                 registerSecdsaUnlockRoutes(resolver = resolver, getAccountId = getAccountId)
+                registerSignGrantRoutes(resolver = resolver, getAccountId = getAccountId)
             }
         } else {
             registerWallet2Routes(
@@ -143,6 +145,7 @@ object OSSWallet2Service {
                 attestationAssembler = attestationAssembler,
             )
             registerSecdsaUnlockRoutes(resolver = resolver, getAccountId = null)
+            registerSignGrantRoutes(resolver = resolver, getAccountId = null)
         }
     }
 

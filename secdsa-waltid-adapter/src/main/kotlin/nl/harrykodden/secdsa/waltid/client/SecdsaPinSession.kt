@@ -5,11 +5,14 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Process-memory PIN session for SECDSA WSCA accounts.
  *
- * The wallet frontend collects the PIN and calls unlock; the wallet backend
- * stores it here only for the process lifetime so subsequent GENKEY/SIGN can
- * reach WSCA. Never log or persist these values.
+ * **Legacy / demo path.** The wallet frontend collects the PIN and calls unlock;
+ * the wallet backend stores it for the process lifetime so subsequent GENKEY/SIGN
+ * can reach WSCA. Never log or persist these values.
  *
- * Lab-only; not a substitute for a hardware-bound unlock UX.
+ * Track G (sole-control): prefer [id.walt.wallet2.solecontrol.SignGrantStore] via
+ * `POST …/keys/secdsa/authorize-sign`. When `SOLE_CONTROL_SIGNING=true`, unlock
+ * alone must not authorize arbitrary holder SIGN — see
+ * `docs/sole-control-track-a.md`.
  */
 object SecdsaPinSession {
     private val pinsByAccountId = ConcurrentHashMap<String, String>()

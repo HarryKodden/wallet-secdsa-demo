@@ -135,7 +135,13 @@ data class ReceiveCredentialRequest(
      * This is a manual escape hatch. Prefer passing a ClientAttestationAssembler to the handler so
      * the library can create attestation headers from authorization server metadata and the wallet key.
      */
-    val tokenRequestHeaders: Map<String, String> = emptyMap()
+    val tokenRequestHeaders: Map<String, String> = emptyMap(),
+
+    /**
+     * Track G: opaque SignGrant from `POST …/keys/secdsa/authorize-sign`
+     * (purpose=`issuance`). Required when `SOLE_CONTROL_SIGNING=true`.
+     */
+    val signGrant: String? = null,
 ) : CredentialOfferSource {
     init { checkOfferSource() }
 }
@@ -167,6 +173,8 @@ data class ReceiveCredentialFromPreviewRequest(
     val clientId: String = DEFAULT_CLIENT_ID,
     val redirectUri: Url = Url("openid://"),
     val tokenRequestHeaders: Map<String, String> = emptyMap(),
+    /** Track G — see [ReceiveCredentialRequest.signGrant]. */
+    val signGrant: String? = null,
 )
 
 /** Result of a completed issuance flow. */
@@ -298,6 +306,8 @@ data class SignProofRequest(
     val did: String? = null,
     /** OID4VCI client_id → JWT proof `iss` (needed for authorization_code on many issuers). */
     val clientId: String? = null,
+    /** Track G — SignGrant purpose=`issuance` when `SOLE_CONTROL_SIGNING=true`. */
+    val signGrant: String? = null,
 )
 
 @Serializable
@@ -560,6 +570,13 @@ object WalletIssuanceHandler {
             key = binding.key
             did = binding.did
         }
+
+        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+            signGrant = request.signGrant,
+            walletId = wallet.id,
+            keyId = key.getKeyId(),
+            purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.issuance,
+        )
 
         val clientConfig = ClientConfiguration(
             clientId = request.clientId,
@@ -824,6 +841,7 @@ object WalletIssuanceHandler {
         clientId = clientId,
         redirectUri = redirectUri,
         tokenRequestHeaders = tokenRequestHeaders,
+        signGrant = signGrant,
     )
 
     // ---------------------------------------------------------------------------
@@ -925,6 +943,12 @@ object WalletIssuanceHandler {
     suspend fun signProof(wallet: Wallet, request: SignProofRequest): SignProofResult {
         val key = wallet.resolveKey(request.key, request.keyId)
             ?: error("No key available for signing proof")
+        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+            signGrant = request.signGrant,
+            walletId = wallet.id,
+            keyId = key.getKeyId(),
+            purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.issuance,
+        )
         val proofBuilder = JwtProofBuilder()
         val proofs = proofBuilder.buildProof(
             key,

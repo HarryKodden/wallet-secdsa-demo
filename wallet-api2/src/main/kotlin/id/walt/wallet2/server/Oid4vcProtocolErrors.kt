@@ -1,6 +1,7 @@
 package id.walt.wallet2.server
 
 import id.walt.wallet2.handlers.CredentialEndpointException
+import id.walt.wallet2.solecontrol.SignGrantException
 import id.waltid.openid4vp.wallet.request.AuthorizationRequestResolver
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -23,6 +24,7 @@ object Oid4vcProtocolErrors {
         var t: Throwable? = throwable
         while (t != null) {
             when (t) {
+                is SignGrantException -> return true
                 is CredentialEndpointException -> return true
                 is IllegalArgumentException -> return true
                 is AuthorizationRequestResolver.SignedAuthorizationRequestValidationException -> return true
@@ -39,6 +41,7 @@ object Oid4vcProtocolErrors {
                 msg.contains("Authorization Request") ||
                 msg.contains("dcql_query") ||
                 msg.contains("No key available") ||
+                msg.contains("sign_grant") ||
                 msg.contains("Credential '") && msg.contains("not found")
             ) {
                 return true
@@ -49,6 +52,16 @@ object Oid4vcProtocolErrors {
     }
 
     fun toBody(throwable: Throwable): ProtocolErrorBody {
+        val signGrant = throwable as? SignGrantException
+            ?: generateSequence(throwable) { it.cause }.filterIsInstance<SignGrantException>().firstOrNull()
+        if (signGrant != null) {
+            return ProtocolErrorBody(
+                error = signGrant.error,
+                error_description = signGrant.description,
+                message = signGrant.description,
+            )
+        }
+
         val credentialError = (throwable as? CredentialEndpointException)?.credentialError
         if (credentialError != null) {
             val code = credentialError.error ?: "invalid_request"
@@ -78,7 +91,13 @@ object Oid4vcProtocolErrors {
         )
     }
 
+    fun statusFor(throwable: Throwable): HttpStatusCode {
+        val signGrant = throwable as? SignGrantException
+            ?: generateSequence(throwable) { it.cause }.filterIsInstance<SignGrantException>().firstOrNull()
+        return if (signGrant != null) HttpStatusCode.Forbidden else HttpStatusCode.BadRequest
+    }
+
     suspend fun ApplicationCall.respondProtocolFailure(throwable: Throwable) {
-        respond(HttpStatusCode.BadRequest, toBody(throwable))
+        respond(statusFor(throwable), toBody(throwable))
     }
 }

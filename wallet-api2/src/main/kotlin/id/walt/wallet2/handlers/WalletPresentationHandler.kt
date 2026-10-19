@@ -81,7 +81,12 @@ data class PresentCredentialRequest(
 
     val keyId: String? = null,
     val did: String? = null,
-    val runPolicies: Boolean? = null
+    val runPolicies: Boolean? = null,
+    /**
+     * Track G: opaque SignGrant from `POST …/keys/secdsa/authorize-sign`
+     * (purpose=`presentation`). Required when `SOLE_CONTROL_SIGNING=true`.
+     */
+    val signGrant: String? = null,
 ) : VpRequestSource
 
 internal fun WalletPresentResult.presentationOutcomeEvent(): WalletSessionEvent = when {
@@ -106,7 +111,9 @@ data class PresentCredentialIsolatedRequest(
     override val requestUrl: Url,
     val credentials: List<StoredCredential>,
     val keyId: String? = null,
-    val did: String? = null
+    val did: String? = null,
+    /** Track G — see [PresentCredentialRequest.signGrant]. */
+    val signGrant: String? = null,
 ) : VpRequestSource
 
 // Isolated step types
@@ -246,6 +253,9 @@ data class SubmitPresentationRequest(
     val selectedDisclosureOptions: List<PresentationDisclosureSelection>? = null,
     val did: String? = null,
     val runPolicies: Boolean? = null,
+    val keyId: String? = null,
+    /** Track G — see [PresentCredentialRequest.signGrant]. */
+    val signGrant: String? = null,
 )
 
 @Serializable
@@ -318,6 +328,13 @@ object WalletPresentationHandler {
         val keyId = key.getKeyId()
         log.trace { "presentCredential: keyId=$keyId, did=$did, requestUrl=${request.requestUrl}" }
 
+        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+            signGrant = request.signGrant,
+            walletId = wallet.id,
+            keyId = keyId,
+            purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.presentation,
+        )
+
         val result = WalletPresentFunctionality2.walletPresentHandling(
             holderKey = key,
             holderDid = did,
@@ -355,6 +372,13 @@ object WalletPresentationHandler {
 
         val key = resolvePresentationSigningKey(wallet, request.keyId, matched)
         val did = resolvePresentationHolderDid(wallet, request.did, matched)
+
+        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+            signGrant = request.signGrant,
+            walletId = wallet.id,
+            keyId = key.getKeyId(),
+            purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.presentation,
+        )
 
         val result = WalletPresentFunctionality2.walletPresentHandling(
             holderKey = key,
@@ -523,8 +547,15 @@ object WalletPresentationHandler {
         }
         onEvent(WalletSessionEvent.presentation_credentials_selected)
 
-        val key = resolvePresentationSigningKey(wallet, requestedKeyId = null, matched = selected)
+        val key = resolvePresentationSigningKey(wallet, requestedKeyId = request.keyId, matched = selected)
         val did = resolvePresentationHolderDid(wallet, request.did, selected)
+
+        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+            signGrant = request.signGrant,
+            walletId = wallet.id,
+            keyId = key.getKeyId(),
+            purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.presentation,
+        )
 
         val result = WalletPresentFunctionality2.walletPresentHandling(
             holderKey = key,

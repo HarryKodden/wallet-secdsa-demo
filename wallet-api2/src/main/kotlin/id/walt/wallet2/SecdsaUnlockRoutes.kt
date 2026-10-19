@@ -16,6 +16,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import id.walt.wallet2.solecontrol.SignGrantStore
+import id.walt.wallet2.solecontrol.SoleControlSigning
 import nl.harrykodden.secdsa.waltid.client.SecdsaPinSession
 import nl.harrykodden.secdsa.waltid.client.WscaClient
 import nl.harrykodden.secdsa.waltid.config.WscaConfig
@@ -62,8 +64,15 @@ data class SecdsaStatusResponse(
      * True when this wallet-api2 process already holds the SoftHSM PIN in
      * [SecdsaPinSession] for [accountId] (survives SPA navigations; cleared on
      * process restart). UI uses this to skip the PIN modal.
+     *
+     * **Legacy / demo path.** When [soleControlSigning] is true, PIN session
+     * alone must not authorize holder SIGN (Track G — see docs/sole-control-track-a.md).
      */
     val pinSessionActive: Boolean = false,
+    /** `SOLE_CONTROL_SIGNING` env — SignGrant required for holder SIGN when true. */
+    val soleControlSigning: Boolean = false,
+    /** True when a non-expired SignGrant exists for this wallet + account. */
+    val signGrantActive: Boolean = false,
     val backend: String? = null,
     val wscaPublicKeyHex: String? = null,
     val keys: List<SecdsaKeyValidity> = emptyList(),
@@ -86,8 +95,9 @@ fun Route.registerSecdsaUnlockRoutes(
         post("/secdsa/unlock", {
             summary = "Unlock SECDSA SoftHSM account with wallet PIN"
             description =
-                "Stores the PIN in process memory and activates the SoftHSM account " +
-                    "so subsequent SECDSA GENKEY/SIGN succeed."
+                "Legacy demo path: stores the PIN in process memory and activates SoftHSM " +
+                    "so subsequent GENKEY/SIGN succeed. Prefer POST …/authorize-sign (Track G) " +
+                    "when SOLE_CONTROL_SIGNING=true — see docs/sole-control-track-a.md."
             request {
                 pathParameter<String>("walletId")
                 body<SecdsaUnlockRequest> {
@@ -164,17 +174,26 @@ private suspend fun RoutingCall.resolveSecdsaWallet(
         }
 }
 
+private fun soleControlFields(walletId: String, accountId: String) = Triple(
+    SoleControlSigning.enabled(),
+    SecdsaPinSession.isUnlocked(accountId),
+    SignGrantStore.hasActiveGrant(walletId, accountId),
+)
+
 private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): SecdsaStatusResponse {
     val client = WscaClient(WscaConfig(baseUrl = wscaBaseUrl(), accountId = accountId))
     val keyInfos = wallet.listAllKeys()
     val didEntries = wallet.didStore?.listDidsAsList().orEmpty()
     val credentialMetas = wallet.streamAllCredentials().toList().map { it.toMetadata() }
+    val (soleControl, pinActive, grantActive) = soleControlFields(wallet.id, accountId)
 
     if (!client.health()) {
         return SecdsaStatusResponse(
             reachable = false,
             accountId = accountId,
-            pinSessionActive = SecdsaPinSession.isUnlocked(accountId),
+            pinSessionActive = pinActive,
+            soleControlSigning = soleControl,
+            signGrantActive = grantActive,
             error = "WSCA unreachable at ${wscaBaseUrl()}",
             keys = keyInfos.map { SecdsaKeyValidity(it.keyId, null, "WSCA unreachable") },
             dids = didEntries.map { SecdsaDidValidity(it.did, null, "WSCA unreachable") },
@@ -188,7 +207,9 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
         return SecdsaStatusResponse(
             reachable = false,
             accountId = accountId,
-            pinSessionActive = SecdsaPinSession.isUnlocked(accountId),
+            pinSessionActive = pinActive,
+            soleControlSigning = soleControl,
+            signGrantActive = grantActive,
             error = e.message ?: "Failed to read WSCA state",
             keys = keyInfos.map { SecdsaKeyValidity(it.keyId, null, "WSCA error") },
             dids = didEntries.map { SecdsaDidValidity(it.did, null, "WSCA error") },
@@ -253,7 +274,9 @@ private suspend fun buildSecdsaStatus(wallet: Wallet, accountId: String): Secdsa
         accountId = accountId,
         activated = snapshot.activated,
         hasUserKey = snapshot.hasUserKey,
-        pinSessionActive = SecdsaPinSession.isUnlocked(accountId),
+        pinSessionActive = pinActive,
+        soleControlSigning = soleControl,
+        signGrantActive = grantActive,
         backend = snapshot.backend,
         wscaPublicKeyHex = snapshot.userPubHex,
         keys = keyStatuses,

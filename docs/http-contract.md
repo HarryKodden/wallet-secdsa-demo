@@ -64,7 +64,9 @@ orthogonal to OID4VC; do not break the SoftHSM PIN blob routes.
 |--------|------|------|
 | GET | `/wallet-api/wallet/{id}/keys` | List keys |
 | POST | `/wallet-api/wallet/{id}/keys/generate` | Body: `backend: "secdsa"`, `keyType: "secp256r1"`, `config: {baseUrl, accountId, pin}` |
-| POST | `/wallet-api/wallet/{id}/keys/secdsa/unlock` | Nitro: SoftHSM activate or instruct; body `{accountId, pin, mode}` |
+| POST | `/wallet-api/wallet/{id}/keys/secdsa/unlock` | Legacy: SoftHSM activate + PIN session (demo) |
+| POST | `/wallet-api/wallet/{id}/keys/secdsa/authorize-sign` | Track G: mint SignGrant (`purpose`, `keyId`, `pin`, …) — see `docs/sole-control-track-a.md` |
+| GET | `/wallet-api/wallet/{id}/keys/secdsa/status` | SoftHSM validity + `soleControlSigning` / `signGrantActive` |
 | GET | `/wallet-api/wallet/{id}/keys/secdsa/status` | Nitro: activated? |
 | GET | `/wallet-api/wallet/{id}/dids` | List DIDs |
 | POST | `/wallet-api/wallet/{id}/dids/create` | Body: `{method: "jwk", keyId}` |
@@ -109,3 +111,5 @@ Optional / best-effort: `GET /wallet-api/transaction-data-profiles` (ignore if 4
    not trusted from the client alone.
 4. Wallet-api2 builds from Maven walt.id + in-repo `secdsa-waltid-adapter`
    (no waltid-identity checkout). Key generate is SECDSA-only.
+5. Track G: when `SOLE_CONTROL_SIGNING=true`, receive/present will require
+   `signGrant` from `authorize-sign` (enforcement rolls out G1–G3). Default off.

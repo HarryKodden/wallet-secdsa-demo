@@ -15,7 +15,7 @@
 | Does the frontend ever hold private key bytes? | **No.** It holds a SoftHSM **PIN**, session JWT, and **public** key handles (`keyId`, public JWK). |
 | Would moving key creation into the frontend be a small change? | **No.** It is a **radical redesign** of trust boundaries, signing path, and the SECDSA adapter model. |
 
-Your specialist is right to ask this. For true end-to-end (“two-way”) holder binding — where only the user’s device can produce signatures that prove control of the credential — the private key must be generated and used **on the wallet side** (web secure context / mobile secure element / WSCD), not on a remote service that signs on the user’s behalf.
+For true end-to-end (“two-way”) holder binding — where only the user’s device can produce signatures that prove control of the credential — the private key must be generated and used **on the wallet side** (web secure context / mobile secure element / WSCD), not on a remote service that signs on the user’s behalf.
 
 This demo deliberately uses the opposite pattern: a **remote signing service** (SECDSA memory WSCD) that walt.id talks to over HTTP, modeled after walt.id’s cloud KMS keys (`AWSKeyRestAPI` / `TSEKey`).
 
@@ -340,10 +340,10 @@ Desired slogan:  Private key never leaves the user's wallet device.
 
 ## 7. Suggested next steps (if pursuing the desired model)
 
-**Track A (cloud / WP HSM sole-control) — preferred near-term path:** actionable
-phased plan lives in local [`TODO.md`](../TODO.md) under **P3-SC** / Chapter G
-(biometric signing window + per-act consent + PIN step-up; SignGrant; no free-floating
-PIN session SIGN). Start at phase **G0** (contracts + `docs/sole-control-track-a.md`).
+**Track A (cloud / WP HSM sole-control) — preferred near-term path:** contracts and
+flag are in [`docs/sole-control-track-a.md`](sole-control-track-a.md); phased
+checklist in local [`TODO.md`](../TODO.md) **P3-SC**. Env: `SOLE_CONTROL_SIGNING`
+(default off). Next: G1 enforce grants on SIGN.
 
 **Track B (on-device keygen) — later:**
 
