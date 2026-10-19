@@ -328,25 +328,28 @@ object WalletPresentationHandler {
         val keyId = key.getKeyId()
         log.trace { "presentCredential: keyId=$keyId, did=$did, requestUrl=${request.requestUrl}" }
 
-        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+        val signGrantSession = id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
             signGrant = request.signGrant,
             walletId = wallet.id,
             keyId = keyId,
             purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.presentation,
         )
+        try {
+            val result = WalletPresentFunctionality2.walletPresentHandling(
+                holderKey = key,
+                holderDid = did,
+                presentationRequestUrl = request.requestUrl,
+                resolvedAuthorizationRequest = resolvedAuthorizationRequest,
+                selectCredentialsForQuery = { matched },
+                holderPoliciesToRun = null,
+                runPolicies = request.runPolicies,
+                transactionDataTypeRegistry = transactionDataTypeRegistry,
+            )
 
-        val result = WalletPresentFunctionality2.walletPresentHandling(
-            holderKey = key,
-            holderDid = did,
-            presentationRequestUrl = request.requestUrl,
-            resolvedAuthorizationRequest = resolvedAuthorizationRequest,
-            selectCredentialsForQuery = { matched },
-            holderPoliciesToRun = null,
-            runPolicies = request.runPolicies,
-            transactionDataTypeRegistry = transactionDataTypeRegistry,
-        )
-
-        return result.emitPresentationOutcome(onEvent)
+            return result.emitPresentationOutcome(onEvent)
+        } finally {
+            signGrantSession.release()
+        }
     }
 
     /**
@@ -373,25 +376,28 @@ object WalletPresentationHandler {
         val key = resolvePresentationSigningKey(wallet, request.keyId, matched)
         val did = resolvePresentationHolderDid(wallet, request.did, matched)
 
-        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+        val signGrantSession = id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
             signGrant = request.signGrant,
             walletId = wallet.id,
             keyId = key.getKeyId(),
             purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.presentation,
         )
+        try {
+            val result = WalletPresentFunctionality2.walletPresentHandling(
+                holderKey = key,
+                holderDid = did,
+                presentationRequestUrl = request.requestUrl,
+                resolvedAuthorizationRequest = resolvedAuthorizationRequest,
+                selectCredentialsForQuery = { matched },
+                holderPoliciesToRun = null,
+                runPolicies = null,
+                transactionDataTypeRegistry = transactionDataTypeRegistry,
+            )
 
-        val result = WalletPresentFunctionality2.walletPresentHandling(
-            holderKey = key,
-            holderDid = did,
-            presentationRequestUrl = request.requestUrl,
-            resolvedAuthorizationRequest = resolvedAuthorizationRequest,
-            selectCredentialsForQuery = { matched },
-            holderPoliciesToRun = null,
-            runPolicies = null,
-            transactionDataTypeRegistry = transactionDataTypeRegistry,
-        )
-
-        return result.emitPresentationOutcome(onEvent)
+            return result.emitPresentationOutcome(onEvent)
+        } finally {
+            signGrantSession.release()
+        }
     }
 
     suspend fun previewPresentation(
@@ -550,25 +556,28 @@ object WalletPresentationHandler {
         val key = resolvePresentationSigningKey(wallet, requestedKeyId = request.keyId, matched = selected)
         val did = resolvePresentationHolderDid(wallet, request.did, selected)
 
-        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+        val signGrantSession = id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
             signGrant = request.signGrant,
             walletId = wallet.id,
             keyId = key.getKeyId(),
             purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.presentation,
         )
+        try {
+            val result = WalletPresentFunctionality2.walletPresentHandling(
+                holderKey = key,
+                holderDid = did,
+                presentationRequestUrl = preview.requestUrl,
+                resolvedAuthorizationRequest = resolvedAuthorizationRequest,
+                selectCredentialsForQuery = { selected },
+                holderPoliciesToRun = null,
+                runPolicies = request.runPolicies,
+                transactionDataTypeRegistry = transactionDataTypeRegistry,
+            )
 
-        val result = WalletPresentFunctionality2.walletPresentHandling(
-            holderKey = key,
-            holderDid = did,
-            presentationRequestUrl = preview.requestUrl,
-            resolvedAuthorizationRequest = resolvedAuthorizationRequest,
-            selectCredentialsForQuery = { selected },
-            holderPoliciesToRun = null,
-            runPolicies = request.runPolicies,
-            transactionDataTypeRegistry = transactionDataTypeRegistry,
-        )
-
-        return result.emitPresentationOutcome(onEvent)
+            return result.emitPresentationOutcome(onEvent)
+        } finally {
+            signGrantSession.release()
+        }
     }
 
     /**

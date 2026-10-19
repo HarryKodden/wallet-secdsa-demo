@@ -77,9 +77,11 @@ These are **demo labels**, not a certified assurance scheme.
 | SignGrant (Track G, flag off by default) | Short-lived authorize-sign grant for one receive/present | Grant TTL (3 min) or consume; see [docs/sole-control-track-a.md](docs/sole-control-track-a.md) |
 | PRF-encrypted PIN blob | Browser can unlock SoftHSM without retyping PIN after passkey get() | See APP_SALT / passkey notes below |
 
-**Track G direction:** `SOLE_CONTROL_SIGNING=true` moves toward sole control (presence +
-consent + SignGrant) so a leftover PIN session alone cannot SIGN. Default remains
-`false` until G1–G3 enforcement and UX land.
+**Track G (G0–G3):** `SOLE_CONTROL_SIGNING=true` requires presence + consent + SignGrant
+for Accept/Present; unlock alone cannot leave free SIGN; demo `/keys/{id}/sign` is 403.
+Default remains `false` (legacy PIN session). Flag-on smoke:
+`./scripts/smoke-sole-control-grant.sh`. Rollback: unset/false + recreate `wallet-api2`.
+Details: [docs/sole-control-track-a.md](docs/sole-control-track-a.md).
 
 **APP_SALT / PRF blobs:** each walt.id account has a random `APP_SALT` in IndexedDB
 (domain separator for WebAuthn PRF → AES-GCM). It is **not** a secret, but if you

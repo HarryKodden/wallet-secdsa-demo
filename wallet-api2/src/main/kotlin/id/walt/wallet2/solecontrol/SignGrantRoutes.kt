@@ -112,8 +112,8 @@ fun Route.registerSignGrantRoutes(
             return@post call.respond(HttpStatusCode.BadRequest, it.localizedMessage ?: "SoftHSM unlock failed")
         }
 
-        // Sole-control mode: PIN was used only for mint proof — do not leave it
-        // available for unrestricted SIGN via SecdsaPinSession.
+        // Sole-control: PIN proof succeeded — bind PIN to the grant (not a free session).
+        // SignGrantGuard installs it only for the receive/present request that consumes the grant.
         if (SoleControlSigning.enabled()) {
             nl.harrykodden.secdsa.waltid.client.SecdsaPinSession.clear(body.accountId)
         }
@@ -130,6 +130,8 @@ fun Route.registerSignGrantRoutes(
                 clientId = body.binding?.clientId,
             ),
             ttlSeconds = ttl,
+            // Grant-scoped PIN so flag-on PoP/VP SIGN can reach SoftHSM without a leftover session.
+            pin = if (SoleControlSigning.enabled()) pin else null,
         )
 
         val expiresAt = DateTimeFormatter.ISO_INSTANT.format(grant.expiresAt.atOffset(ZoneOffset.UTC))

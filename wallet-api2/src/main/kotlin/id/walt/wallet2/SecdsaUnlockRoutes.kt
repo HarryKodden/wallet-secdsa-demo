@@ -96,8 +96,9 @@ fun Route.registerSecdsaUnlockRoutes(
             summary = "Unlock SECDSA SoftHSM account with wallet PIN"
             description =
                 "Legacy demo path: stores the PIN in process memory and activates SoftHSM " +
-                    "so subsequent GENKEY/SIGN succeed. Prefer POST …/authorize-sign (Track G) " +
-                    "when SOLE_CONTROL_SIGNING=true — see docs/sole-control-track-a.md."
+                    "so subsequent GENKEY/SIGN succeed. When SOLE_CONTROL_SIGNING=true, SoftHSM " +
+                    "PIN is verified but NOT kept for free SIGN — use POST …/authorize-sign " +
+                    "(see docs/sole-control-track-a.md). Mobile pair must mint SignGrant too."
             request {
                 pathParameter<String>("walletId")
                 body<SecdsaUnlockRequest> {
@@ -116,8 +117,20 @@ fun Route.registerSecdsaUnlockRoutes(
             runCatching {
                 val body = call.receive<SecdsaUnlockRequest>()
                 WscaClient(WscaConfig(baseUrl = wscaBaseUrl(), accountId = body.accountId)).unlock(body.pin)
-            }.onSuccess {
-                call.respond(HttpStatusCode.OK, mapOf("status" to "unlocked"))
+                // Sole-control: SoftHSM activate/verify only — no PIN-forever session for SIGN.
+                if (SoleControlSigning.enabled()) {
+                    SecdsaPinSession.clear(body.accountId)
+                }
+                body
+            }.onSuccess { body ->
+                call.respond(
+                    HttpStatusCode.OK,
+                    mapOf(
+                        "status" to "unlocked",
+                        "soleControlSigning" to SoleControlSigning.enabled().toString(),
+                        "pinSessionActive" to SecdsaPinSession.isUnlocked(body.accountId).toString(),
+                    ),
+                )
             }.onFailure {
                 call.respond(HttpStatusCode.BadRequest, it.localizedMessage ?: "unlock failed")
             }

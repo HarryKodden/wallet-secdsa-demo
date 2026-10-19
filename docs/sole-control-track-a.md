@@ -1,6 +1,6 @@
 # Sole-control Track A (cloud / WP HSM) — contracts
 
-**Status:** G0–G2 done · **G3** flag-on smoke / mobile next (flag still default off)  
+**Status:** G0–G3 done · **G4** harden next (flag still default off)  
 **Flag:** `SOLE_CONTROL_SIGNING` (default `false` — legacy PIN session still works)  
 **Related:** [`key-creation-architecture.md`](key-creation-architecture.md) · `TODO.md` **P3-SC**
 
@@ -132,7 +132,16 @@ When flag **false**: ignore `signGrant`; legacy `SecdsaPinSession` behavior unch
 
 ### 4.4 Demo sign route
 
-`POST …/keys/{keyId}/sign` — when flag on: require `signGrant` with purpose allowing demo sign, or return 403. (G3)
+`POST …/keys/{keyId}/sign` — when flag on: **always 403** (`sign_grant_required`).
+Use authorize-sign + receive/present. No grant bypass on this demo endpoint.
+
+### 4.5 Grant-scoped SoftHSM PIN (G3)
+
+When flag on, `authorize-sign` proves the PIN then **binds it to the SignGrant**
+(process memory). `SignGrantGuard` installs that PIN into `SecdsaPinSession` only
+for the receive/present request that consumes the grant, then clears it.
+`POST …/secdsa/unlock` still verifies SoftHSM but does **not** leave a PIN session
+for free SIGN (mobile pair included — mint a grant before receive/present).
 
 ---
 
@@ -148,14 +157,30 @@ When flag **false**: ignore `signGrant`; legacy `SecdsaPinSession` behavior unch
 
 ---
 
-## 6. Feature flag
+## 6. Feature flag + rollback
 
 | Env | Default | Effect |
 |-----|---------|--------|
 | `SOLE_CONTROL_SIGNING` | `false` / unset | Legacy PIN session SIGN (current demo) |
-| `SOLE_CONTROL_SIGNING=true` | — | Enforce SignGrant on holder SIGN paths (as they are wired in G1–G3) |
+| `SOLE_CONTROL_SIGNING=true` | — | Enforce SignGrant on holder SIGN paths (G1–G3) |
 
-Compose: pass through `wallet-api2` environment (see `.env.example`).
+Compose: `wallet-api2` reads the env (see `.env.example` / `docker-compose.yml`).
+
+**Enable (local):**
+
+```bash
+SOLE_CONTROL_SIGNING=true docker compose up -d --force-recreate wallet-api2
+./scripts/smoke-sole-control-grant.sh
+# Optional live OID4VC:
+# SMOKE_OFFER_URI='openid-credential-offer://…' ./scripts/smoke-sole-control-grant.sh
+```
+
+**Rollback:** set `SOLE_CONTROL_SIGNING=false` (or unset) and
+`docker compose up -d --force-recreate wallet-api2`. Legacy unlock session SIGN returns.
+Web UI auto-detects via `GET …/secdsa/status` (`soleControlSigning`).
+
+**Mobile pair:** same grant model when flag on — unlock alone is SoftHSM verify only;
+phone must call `authorize-sign` then pass `signGrant` on receive/present (web already does).
 
 ---
 
@@ -166,7 +191,7 @@ Compose: pass through `wallet-api2` environment (see `.env.example`).
 | **G0** | This doc + flag + status field + API sketch frozen |
 | **G1** | `SignGrantStore`, authorize-sign, **enforce** on receive/present/`sign-proof` behind flag; demo `/keys/…/sign` disabled when flag on |
 | **G2** | WebAuthn window + consent sheet; PIN step-up; UI sends `signGrant` (**done**) |
-| **G3** | receive/present + mobile + smoke + gate demo sign |
+| **G3** | Grant-scoped PIN; unlock clears session when flag on; smoke + compose rollback docs; demo sign stays 403 (**done**) |
 | **G4** | Challenge–response option, audit, adapter docs |
 | **G5** | README honesty, HSM decision gate |
 

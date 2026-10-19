@@ -24,6 +24,11 @@ data class SignGrantBinding(
     val clientId: String? = null,
 )
 
+/**
+ * In-memory SignGrant. [pin] is SoftHSM material bound to this grant only —
+ * installed into [nl.harrykodden.secdsa.waltid.client.SecdsaPinSession] for the
+ * duration of one receive/present request, then cleared. Never log [pin].
+ */
 data class SignGrant(
     val id: String,
     val walletId: String,
@@ -32,7 +37,13 @@ data class SignGrant(
     val purpose: SignGrantPurpose,
     val binding: SignGrantBinding,
     val expiresAt: Instant,
-)
+    /** SoftHSM PIN for the single SIGN chain authorized by this grant. */
+    val pin: String? = null,
+) {
+    override fun toString(): String =
+        "SignGrant(id=$id, walletId=$walletId, accountId=$accountId, keyId=$keyId, " +
+            "purpose=$purpose, expiresAt=$expiresAt, pin=${if (pin != null) "***" else "null"})"
+}
 
 /**
  * Process-memory SignGrant store (lab). Survives SPA navigations; cleared on
@@ -49,6 +60,7 @@ object SignGrantStore {
         purpose: SignGrantPurpose,
         binding: SignGrantBinding = SignGrantBinding(),
         ttlSeconds: Long = SoleControlSigning.DEFAULT_GRANT_TTL_SECONDS,
+        pin: String? = null,
     ): SignGrant {
         require(walletId.isNotBlank()) { "walletId required" }
         require(accountId.isNotBlank()) { "accountId required" }
@@ -63,6 +75,7 @@ object SignGrantStore {
             purpose = purpose,
             binding = binding,
             expiresAt = Instant.now().plusSeconds(ttlSeconds.coerceIn(30L, 600L)),
+            pin = pin?.takeIf { it.isNotBlank() },
         )
         grants[id] = grant
         return grant
@@ -70,21 +83,30 @@ object SignGrantStore {
 
     /**
      * Validate and consume a grant (single-use). Returns the grant on success.
+     *
+     * Soft binding: fields set on the grant at mint must match [expectedBinding]
+     * when provided. Unset grant fields are not enforced.
      */
     fun consume(
         signGrant: String,
         walletId: String,
         keyId: String,
         purpose: SignGrantPurpose,
+        expectedBinding: SignGrantBinding? = null,
     ): SignGrant {
         purgeExpired()
-        val grant = grants.remove(signGrant.trim())
-            ?: error("sign_grant_invalid_or_expired")
-        require(grant.walletId == walletId) { "sign_grant_wallet_mismatch" }
-        require(grant.keyId == keyId) { "sign_grant_key_mismatch" }
-        require(grant.purpose == purpose) { "sign_grant_purpose_mismatch" }
-        require(grant.expiresAt.isAfter(Instant.now())) { "sign_grant_invalid_or_expired" }
-        return grant
+        val id = signGrant.trim()
+        synchronized(grants) {
+            val grant = grants[id] ?: error("sign_grant_invalid_or_expired")
+            require(grant.walletId == walletId) { "sign_grant_wallet_mismatch" }
+            require(grant.keyId == keyId) { "sign_grant_key_mismatch" }
+            require(grant.purpose == purpose) { "sign_grant_purpose_mismatch" }
+            require(grant.expiresAt.isAfter(Instant.now())) { "sign_grant_invalid_or_expired" }
+            require(bindingMatches(grant.binding, expectedBinding)) { "sign_grant_binding_mismatch" }
+            // Single-use: remove only after all checks pass.
+            grants.remove(id)
+            return grant
+        }
     }
 
     fun peekValid(signGrant: String?, walletId: String): SignGrant? {
@@ -108,6 +130,16 @@ object SignGrantStore {
 
     fun clearAll() {
         grants.clear()
+    }
+
+    private fun bindingMatches(grantBinding: SignGrantBinding, expected: SignGrantBinding?): Boolean {
+        // Soft binding: only enforce when the caller supplies expected context.
+        // Unset grant fields are never required; set grant fields must match expected.
+        if (expected == null) return true
+        if (grantBinding.offerId != null && grantBinding.offerId != expected.offerId) return false
+        if (grantBinding.requestHash != null && grantBinding.requestHash != expected.requestHash) return false
+        if (grantBinding.clientId != null && grantBinding.clientId != expected.clientId) return false
+        return true
     }
 
     private fun purgeExpired() {

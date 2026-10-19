@@ -571,13 +571,16 @@ object WalletIssuanceHandler {
             did = binding.did
         }
 
-        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+        val signGrantSession = id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
             signGrant = request.signGrant,
             walletId = wallet.id,
             keyId = key.getKeyId(),
             purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.issuance,
+            expectedBinding = id.walt.wallet2.solecontrol.SignGrantBinding(
+                clientId = request.clientId.takeIf { it.isNotBlank() },
+            ),
         )
-
+        try {
         val clientConfig = ClientConfiguration(
             clientId = request.clientId,
             redirectUris = listOf(request.redirectUri.toString())
@@ -707,6 +710,9 @@ object WalletIssuanceHandler {
         }
 
         onEvent(WalletSessionEvent.issuance_completed)
+        } finally {
+            signGrantSession.release()
+        }
     }
 
     /**
@@ -943,22 +949,29 @@ object WalletIssuanceHandler {
     suspend fun signProof(wallet: Wallet, request: SignProofRequest): SignProofResult {
         val key = wallet.resolveKey(request.key, request.keyId)
             ?: error("No key available for signing proof")
-        id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
+        val signGrantSession = id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
             signGrant = request.signGrant,
             walletId = wallet.id,
             keyId = key.getKeyId(),
             purpose = id.walt.wallet2.solecontrol.SignGrantPurpose.issuance,
+            expectedBinding = request.clientId?.takeIf { it.isNotBlank() }?.let {
+                id.walt.wallet2.solecontrol.SignGrantBinding(clientId = it)
+            },
         )
-        val proofBuilder = JwtProofBuilder()
-        val proofs = proofBuilder.buildProof(
-            key,
-            request.issuerUrl.toString(),
-            request.nonce,
-            request.did,
-            clientId = request.clientId,
-            preferClientIdAsIss = !request.clientId.isNullOrBlank(),
-        )
-        return SignProofResult(proofJwt = proofs.jwt?.firstOrNull() ?: error("Proof signing produced no JWT"))
+        try {
+            val proofBuilder = JwtProofBuilder()
+            val proofs = proofBuilder.buildProof(
+                key,
+                request.issuerUrl.toString(),
+                request.nonce,
+                request.did,
+                clientId = request.clientId,
+                preferClientIdAsIss = !request.clientId.isNullOrBlank(),
+            )
+            return SignProofResult(proofJwt = proofs.jwt?.firstOrNull() ?: error("Proof signing produced no JWT"))
+        } finally {
+            signGrantSession.release()
+        }
     }
 
     suspend fun fetchCredential(request: FetchCredentialRequest): FetchCredentialResult =

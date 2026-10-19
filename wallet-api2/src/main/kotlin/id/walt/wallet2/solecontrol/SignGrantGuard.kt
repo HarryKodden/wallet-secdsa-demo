@@ -1,21 +1,30 @@
 package id.walt.wallet2.solecontrol
 
+import nl.harrykodden.secdsa.waltid.client.SecdsaPinSession
+
 /**
  * Enforces SignGrant consumption when [SoleControlSigning.enabled].
+ *
+ * On consume, installs the grant-bound SoftHSM PIN into [SecdsaPinSession] for
+ * the duration of the receive/present request. Callers must [SignGrantSession.release]
+ * in a `finally` block so the PIN does not remain for unrestricted SIGN.
  */
 object SignGrantGuard {
 
     /**
-     * No-op when sole-control is off.
-     * When on: requires a valid single-use grant matching wallet, key, and purpose.
+     * No-op session when sole-control is off (legacy PIN session unchanged).
+     * When on: requires a valid single-use grant matching wallet, key, purpose,
+     * and optional soft binding; installs grant PIN for subsequent lab SIGN.
      */
     fun requireConsumed(
         signGrant: String?,
         walletId: String,
         keyId: String,
         purpose: SignGrantPurpose,
-    ) {
-        if (!SoleControlSigning.enabled()) return
+        expectedBinding: SignGrantBinding? = null,
+    ): SignGrantSession {
+        if (!SoleControlSigning.enabled()) return SignGrantSession.NoOp
+
         if (signGrant.isNullOrBlank()) {
             throw SignGrantException(
                 error = "sign_grant_required",
@@ -25,12 +34,13 @@ object SignGrantGuard {
                         "(see docs/sole-control-track-a.md).",
             )
         }
-        try {
+        val grant = try {
             SignGrantStore.consume(
                 signGrant = signGrant,
                 walletId = walletId,
                 keyId = keyId,
                 purpose = purpose,
+                expectedBinding = expectedBinding,
             )
         } catch (e: IllegalStateException) {
             throw SignGrantException(
@@ -42,6 +52,34 @@ object SignGrantGuard {
                 error = "sign_grant_invalid_or_expired",
                 description = e.message ?: "SignGrant rejected",
             )
+        }
+
+        val pin = grant.pin
+        if (pin.isNullOrBlank()) {
+            throw SignGrantException(
+                error = "sign_grant_invalid_or_expired",
+                description = "SignGrant has no SoftHSM PIN (re-mint via authorize-sign)",
+            )
+        }
+        SecdsaPinSession.unlock(grant.accountId, pin)
+        return SignGrantSession.Active(grant.accountId)
+    }
+}
+
+/**
+ * Holds the grant-scoped PIN session for one holder SIGN request.
+ * Always [release] in `finally` when sole-control is on.
+ */
+sealed class SignGrantSession {
+    abstract fun release()
+
+    data object NoOp : SignGrantSession() {
+        override fun release() = Unit
+    }
+
+    class Active(private val accountId: String) : SignGrantSession() {
+        override fun release() {
+            SecdsaPinSession.clear(accountId)
         }
     }
 }

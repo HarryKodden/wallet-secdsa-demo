@@ -23,12 +23,13 @@ class SignGrantGuardTest {
     @Test
     fun `no-op when sole-control disabled`() {
         // Default env unset → SoleControlSigning.enabled() == false
-        SignGrantGuard.requireConsumed(
+        val session = SignGrantGuard.requireConsumed(
             signGrant = null,
             walletId = "w1",
             keyId = "secdsa:a:1",
             purpose = SignGrantPurpose.issuance,
         )
+        session.release()
     }
 
     @Test

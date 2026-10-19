@@ -18,7 +18,10 @@ import {
  * Auth model:
  *   - Web SPA: auth.token cookie → Nitro syncs wallet-api2 in step 4
  *   - Paired mobile: SoftHSM-only here (often no cookie); phone then POSTs
- *     wallet-api2 `/keys/secdsa/unlock` with the pairing Bearer JWT itself
+ *     wallet-api2 `/keys/secdsa/unlock` with the pairing Bearer JWT itself.
+ *     When SOLE_CONTROL_SIGNING=true, that unlock verifies SoftHSM but does NOT
+ *     leave a PIN session for free SIGN — mobile must mint SignGrant via
+ *     `POST …/keys/secdsa/authorize-sign` before receive/present (same as web).
  *
  * SoftHSM quirk: /api/activate on an already-activated account returns
  * "already activated" for ANY pin (including wrong ones). Never treat that as
