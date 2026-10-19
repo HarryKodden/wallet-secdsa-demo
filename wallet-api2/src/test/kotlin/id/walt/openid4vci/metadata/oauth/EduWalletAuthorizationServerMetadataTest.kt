@@ -44,6 +44,30 @@ class EduWalletAuthorizationServerMetadataTest {
     }
 
     @Test
+    fun `parses SURFconext AS metadata that lists JWT auth methods without signing algs`() {
+        val raw = """
+            {
+              "issuer": "https://surfconext.poc2.dev.oidf.lab.surfconext.nl",
+              "authorization_endpoint": "https://surfconext.poc2.dev.oidf.lab.surfconext.nl/authorize",
+              "token_endpoint": "https://surfconext.poc2.dev.oidf.lab.surfconext.nl/token",
+              "jwks_uri": "https://surfconext.poc2.dev.oidf.lab.surfconext.nl/.well-known/jwks.json",
+              "response_types_supported": ["code"],
+              "grant_types_supported": ["authorization_code"],
+              "token_endpoint_auth_methods_supported": [
+                "client_secret_basic",
+                "client_secret_post",
+                "client_secret_jwt",
+                "private_key_jwt"
+              ]
+            }
+        """.trimIndent()
+
+        val metadata = json.decodeFromString(AuthorizationServerMetadata.serializer(), raw)
+        assertEquals("https://surfconext.poc2.dev.oidf.lab.surfconext.nl/token", metadata.tokenEndpoint)
+        assertEquals(null, metadata.tokenEndpointAuthSigningAlgValuesSupported)
+    }
+
+    @Test
     fun `parses SURF OIDF lab pre-authorized token-only AS without response_types`() {
         val raw = """
             {

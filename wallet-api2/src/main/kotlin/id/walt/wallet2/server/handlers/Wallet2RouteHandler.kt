@@ -1475,8 +1475,27 @@ object Wallet2RouteHandler {
         val url = Url(vct)
         val authority = url.protocolWithAuthority
         val path = vct.substringAfter(authority)
-        val response = vctHttpClient.get("$authority/.well-known/vct$path")
-        require(response.status.isSuccess()) { "VCT URL returns error: ${response.status}" }
-        return SdJwtVcTypeMetadataDraft04.fromJSON(response.body<JsonObject>())
+        // IETF SD-JWT VC type metadata lives at /.well-known/vct{path}; some labs omit it
+        // or serve a thin document at the vct URL itself (SURF OIDF).
+        val candidates = listOf(
+            "$authority/.well-known/vct$path",
+            vct,
+        )
+        for (candidate in candidates) {
+            val response = vctHttpClient.get(candidate)
+            if (!response.status.isSuccess()) continue
+            runCatching { SdJwtVcTypeMetadataDraft04.fromJSON(response.body<JsonObject>()) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return SdJwtVcTypeMetadataDraft04.fromJSON(
+            buildJsonObject {
+                put("vct", JsonPrimitive(vct))
+                put(
+                    "name",
+                    JsonPrimitive(vct.substringAfterLast('/').ifBlank { "Credential" }),
+                )
+            },
+        )
     }
 }

@@ -204,13 +204,9 @@ data class AuthorizationServerMetadata(
             }
         }
 
-        // RFC 8414 §2: signing algorithms are required for private_key_jwt and client_secret_jwt.
-        tokenEndpointAuthMethodsSupported?.let { methods ->
-            val requiresSigningAlgs = methods.contains("private_key_jwt") || methods.contains("client_secret_jwt")
-            require(!requiresSigningAlgs || !tokenEndpointAuthSigningAlgValuesSupported.isNullOrEmpty()) {
-                "Authorization server token_endpoint_auth_signing_alg_values_supported is required when using JWT auth methods"
-            }
-        }
+        // RFC 8414 recommends token_endpoint_auth_signing_alg_values_supported when
+        // private_key_jwt / client_secret_jwt are advertised. SURFconext omits the alg list —
+        // do not fail metadata parse (demos still use client_secret_basic/post).
 
         customParameters?.let { params ->
             require(params.keys.none { it in AuthorizationServerMetadataSerializer.knownKeys }) {
