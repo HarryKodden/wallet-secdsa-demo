@@ -615,18 +615,26 @@ object WalletIssuanceHandler {
             ?: error("Authorization server metadata contains no token_endpoint")
         log.trace { "Requesting token from $tokenEndpoint" }
 
-        val attestationHeaders = buildTokenEndpointAttestationHeaders(
-            asMetadata = asMetadata,
-            clientId = request.clientId,
-            attestationAssembler = attestationAssembler,
-            resolveInstanceKey = { key },
-            onAttestationObtained = { onEvent(WalletSessionEvent.issuance_attestation_obtained) },
-        )
-
+        // Prefer anonymous pre-authorized access when the AS advertises it. Lab issuer-api2
+        // (and many demos) allow grant_type=pre-authorized_code with no client_id; sending
+        // client_id / OAuth-Client-Attestation instead yields 401 invalid_client/invalid_grant
+        // when attestation is only configured for EUDI-style issuers.
         val anonymousPreAuthorizedCode =
             asMetadata.preAuthorizedGrantAnonymousAccessSupported == true &&
-                    request.tokenRequestHeaders.isEmpty() &&
-                    attestationHeaders == null
+                request.tokenRequestHeaders.isEmpty()
+
+        val attestationHeaders =
+            if (anonymousPreAuthorizedCode) {
+                null
+            } else {
+                buildTokenEndpointAttestationHeaders(
+                    asMetadata = asMetadata,
+                    clientId = request.clientId,
+                    attestationAssembler = attestationAssembler,
+                    resolveInstanceKey = { key },
+                    onAttestationObtained = { onEvent(WalletSessionEvent.issuance_attestation_obtained) },
+                )
+            }
 
         val tokenResponse = tokenBuilder.exchangePreAuthorizedCode(
             tokenEndpoint = tokenEndpoint,
@@ -654,14 +662,17 @@ object WalletIssuanceHandler {
                         )
                         if (did != null && !preferJwkBinding) {
                             // walt.id issuer-api2 rejects proofs whose `iss` ≠ access-token client_id
-                            // ("Credential proof issuer claim must match the access token client_id").
+                            // when the token was issued to a client. Anonymous pre-auth tokens have
+                            // no client_id — use the holder DID as iss instead.
+                            val proofClientId =
+                                request.clientId.takeIf { it.isNotBlank() && !anonymousPreAuthorizedCode }
                             proofBuilder.buildProof(
                                 key = key,
                                 issuer = offer.credentialIssuer,
                                 nonce = nonce,
                                 did = did,
-                                clientId = request.clientId,
-                                preferClientIdAsIss = request.clientId.isNotBlank(),
+                                clientId = proofClientId,
+                                preferClientIdAsIss = proofClientId != null,
                             ).jwt?.firstOrNull()
                         } else {
                             proofBuilder.buildJwtProof(
@@ -669,7 +680,9 @@ object WalletIssuanceHandler {
                                 offer.credentialIssuer,
                                 nonce,
                                 includeJwk = true,
-                                clientId = request.clientId.takeIf { it.isNotBlank() },
+                                clientId = request.clientId.takeIf {
+                                    it.isNotBlank() && !anonymousPreAuthorizedCode
+                                },
                             ).jwt?.firstOrNull()
                         }
                     }
@@ -885,20 +898,24 @@ object WalletIssuanceHandler {
             val issuerMetadata = metadataResolver.resolveCredentialIssuerMetadata(it)
             metadataResolver.resolveAuthorizationServerMetadataWithFallback(issuerMetadata)
         }
-        val attestationHeaders = asMetadata?.let {
-            buildTokenEndpointAttestationHeaders(
-                asMetadata = it,
-                clientId = request.clientId,
-                attestationAssembler = attestationAssembler,
-                resolveInstanceKey = { wallet.resolveKey() },
-                onAttestationObtained = onAttestationObtained,
-            )
-        }
         val anonymousPreAuthorizedCode =
             request.anonymousPreAuthorizedCode ||
                 (asMetadata?.preAuthorizedGrantAnonymousAccessSupported == true &&
-                    request.tokenRequestHeaders.isEmpty() &&
-                    attestationHeaders == null)
+                    request.tokenRequestHeaders.isEmpty())
+        val attestationHeaders =
+            if (anonymousPreAuthorizedCode) {
+                null
+            } else {
+                asMetadata?.let {
+                    buildTokenEndpointAttestationHeaders(
+                        asMetadata = it,
+                        clientId = request.clientId,
+                        attestationAssembler = attestationAssembler,
+                        resolveInstanceKey = { wallet.resolveKey() },
+                        onAttestationObtained = onAttestationObtained,
+                    )
+                }
+            }
 
         return requestToken(
             request = request,
