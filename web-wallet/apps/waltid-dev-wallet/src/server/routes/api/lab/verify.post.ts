@@ -5,6 +5,7 @@ import {
     readUpstreamJson,
     verifierApi2Base,
 } from "../../../utils/labApis";
+import {rewriteLabVerifyResponse} from "../../../utils/labVerifyUrls";
 
 type VerifyBody = LabCredentialQuery & {
     /** @deprecated use format + typeValues / vctValues / doctypeValue */
@@ -54,21 +55,22 @@ export default defineEventHandler(async (event) => {
         fullAuthorizationRequestUrl?: string;
     }>(upstream);
 
+    const rewritten = rewriteLabVerifyResponse(created as Record<string, unknown>) as typeof created;
     const requestUrl =
-        created.bootstrapAuthorizationRequestUrl ||
-        created.fullAuthorizationRequestUrl;
+        rewritten.bootstrapAuthorizationRequestUrl ||
+        rewritten.fullAuthorizationRequestUrl;
     if (!requestUrl) {
         throw createError({
             statusCode: 502,
             statusMessage: "Verifier did not return an authorization request URL",
-            data: created,
+            data: rewritten,
         });
     }
 
     return {
-        sessionId: created.sessionId,
+        sessionId: rewritten.sessionId,
         requestUrl,
-        bootstrapAuthorizationRequestUrl: created.bootstrapAuthorizationRequestUrl,
-        fullAuthorizationRequestUrl: created.fullAuthorizationRequestUrl,
+        bootstrapAuthorizationRequestUrl: rewritten.bootstrapAuthorizationRequestUrl,
+        fullAuthorizationRequestUrl: rewritten.fullAuthorizationRequestUrl,
     };
 });
