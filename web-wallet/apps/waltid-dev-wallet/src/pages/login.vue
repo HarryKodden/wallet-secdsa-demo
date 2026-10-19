@@ -160,6 +160,7 @@ function formatPasskeyError(err: unknown): string {
         name?: string;
         message?: string;
         statusMessage?: string;
+        statusCode?: number;
         data?: {statusMessage?: string; message?: string};
     };
     if (e.name === "NotAllowedError") {
@@ -168,13 +169,22 @@ function formatPasskeyError(err: unknown): string {
     if (e.name === "InvalidStateError") {
         return "A passkey for this account already exists on this authenticator. Try signing in again.";
     }
+    if (e.name === "SecurityError") {
+        return e.message || "Passkey blocked: site origin does not match the wallet RP ID.";
+    }
     const detail =
         e.statusMessage ||
         e.data?.statusMessage ||
         e.data?.message ||
         e.message ||
         "";
-    if (detail && !detail.includes("fetch")) return detail;
+    // ofetch wraps failures as "[POST] \"…\": 400 …" — surface statusMessage above that.
+    if (detail && !/^\[(GET|POST|PUT|PATCH|DELETE)\]/i.test(detail) && !detail.startsWith("[FETCH_]")) {
+        return detail;
+    }
+    if (e.statusCode) {
+        return `Passkey registration failed (HTTP ${e.statusCode}). Please try again.`;
+    }
     return "Passkey registration failed — please try again.";
 }
 

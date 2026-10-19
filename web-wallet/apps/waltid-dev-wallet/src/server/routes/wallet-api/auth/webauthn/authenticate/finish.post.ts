@@ -2,7 +2,7 @@ import {verifyAuthenticationResponse} from "@simplewebauthn/server";
 import {isoBase64URL} from "@simplewebauthn/server/helpers";
 import {getCookie, deleteCookie, setCookie} from "h3";
 import {findCredential, updateCounter} from "../../../../../utils/webauthnStore";
-import {getWebAuthnConfig} from "../../../../../utils/webauthnConfig";
+import {getWebAuthnConfig, webauthnCookieOptions} from "../../../../../utils/webauthnConfig";
 
 /**
  * Step 2 of passkey authentication.
@@ -59,10 +59,7 @@ export default defineEventHandler(async (event) => {
 
     // Stamp the assertion time so downstream gates (e.g. pairing QR) can check freshness.
     setCookie(event, "webauthn.asserted_at", String(Date.now()), {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        secure: false,
+        ...webauthnCookieOptions(event),
         maxAge: 60 * 30, // 30-min window
     });
 

@@ -324,7 +324,10 @@ async function registerPasskey() {
   try {
     const label = newPasskeyLabel.value.trim() || "Passkey";
 
-    const options = await $fetch("/wallet-api/auth/webauthn/register/begin", {method: "POST"});
+    const options = await $fetch("/wallet-api/auth/webauthn/register/begin", {
+      method: "POST",
+      credentials: "include",
+    });
     // parseCreationOptionsFromJSON silently drops `prf` — attach after parse.
     const createOpts = parseCreationOptionsFromJSON({publicKey: options as any});
     const prfActivationSalt = new Uint8Array(32);
@@ -340,6 +343,7 @@ async function registerPasskey() {
 
     await $fetch("/wallet-api/auth/webauthn/register/finish", {
       method: "POST",
+      credentials: "include",
       body: {
         ...regJSON,
         label,

@@ -1,5 +1,6 @@
 import type {H3Event} from "h3";
 import {getRequestURL} from "h3";
+import {resolveOidcEnv} from "./oidcEnv";
 
 export type WebAuthnConfig = {
     rpId: string;
@@ -23,14 +24,19 @@ function originFromUrl(raw: string): {origin: string; rpId: string} | null {
 
 /**
  * WebAuthn RP config.
- * Prefer the browser-facing public base (OIDC_BASE_URL); fall back to the
- * request URL when proxies set X-Forwarded-* correctly.
+ *
+ * Prefer live OIDC_BASE_URL from the process environment. Nuxt bakes
+ * `runtimeConfig.public.oidcPublicBaseUrl` at image build time (often
+ * `http://localhost:7115`), which would make browsers reject create() on the
+ * real host (rpId must match the page origin).
  */
 export function getWebAuthnConfig(event: H3Event): WebAuthnConfig {
     const config = useRuntimeConfig(event);
+    const env = resolveOidcEnv();
+
     const configured = String(
-        config.public.oidcPublicBaseUrl ||
-            process.env.OIDC_BASE_URL ||
+        env.baseUrl ||
+            config.public.oidcPublicBaseUrl ||
             config.public.walletPublicBaseUrl ||
             "",
     ).trim();
@@ -55,11 +61,15 @@ export function getWebAuthnConfig(event: H3Event): WebAuthnConfig {
 
 /** Cookie flags for short-lived WebAuthn challenge state. */
 export function webauthnCookieOptions(event: H3Event) {
-    let secure = false;
-    try {
-        secure = getRequestURL(event).protocol === "https:";
-    } catch {
-        secure = String(process.env.OIDC_BASE_URL || "").startsWith("https:");
+    // Behind ingress the request URL is often http:// even when the public site is HTTPS.
+    // Prefer the public base URL so Secure cookies are set correctly on TLS deploys.
+    let secure = String(resolveOidcEnv().baseUrl || "").startsWith("https:");
+    if (!secure) {
+        try {
+            secure = getRequestURL(event).protocol === "https:";
+        } catch {
+            secure = false;
+        }
     }
     return {
         httpOnly: true,
