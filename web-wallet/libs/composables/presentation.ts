@@ -434,6 +434,10 @@ export async function usePresentation(query: any) {
         form_post_html?: string | null;
         error?: string | null;
         message?: string | null;
+        verifier_response?: {
+          error?: string;
+          error_description?: string;
+        } | null;
       }>(`/wallet-api/wallet/${currentWallet.value}/credentials/present`, {
         method: "POST",
         body: {
@@ -460,14 +464,19 @@ export async function usePresentation(query: any) {
         result?.transmission_success === "false";
 
       if (transmissionFailed) {
+        const verifierDetail =
+          result?.verifier_response?.error_description ||
+          result?.verifier_response?.error ||
+          "";
         failed.value = true;
-        failMessage.value =
-          "Verifier rejected the presentation. Often a holder-key / DID mismatch, " +
-          "or the verifier does not trust this credential’s issuer " +
-          "(trusted_authorities / trust policy — not SoftHSM by itself). " +
-          "Use the SECDSA PIN for the credential's SoftHSM account, and ensure the " +
-          "wallet DID matches the credential subject." +
-          (holderKeyId ? ` (credential key: ${holderKeyId})` : "");
+        failMessage.value = verifierDetail
+          ? `Verifier rejected the presentation: ${verifierDetail}`
+          : "Verifier rejected the presentation. Often a holder-key / DID mismatch, " +
+            "or the verifier does not trust this credential’s issuer " +
+            "(trusted_authorities / trust policy — not SoftHSM by itself). " +
+            "Use the SECDSA PIN for the credential's SoftHSM account, and ensure the " +
+            "wallet DID matches the credential subject." +
+            (holderKeyId ? ` (credential key: ${holderKeyId})` : "");
         return;
       }
 

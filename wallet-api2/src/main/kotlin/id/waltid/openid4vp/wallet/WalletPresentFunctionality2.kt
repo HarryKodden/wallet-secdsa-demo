@@ -265,8 +265,32 @@ object WalletPresentFunctionality2 {
         responseUri: String,
         parameters: Parameters,
     ): WalletPresentResult {
-        val response = webPostToken.sendForm(responseUri, parameters)
-        val responseBody = response.bodyAsText()
+        var response = webPostToken.sendForm(responseUri, parameters)
+        var responseBody = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            log.warn { "Verifier direct_post ${response.status.value}: $responseBody" }
+            // SURF OIDF (and some other labs) still treat vp_token as a bare SD-JWT string.
+            // OID4VP 1.0 DCQL sends a JSON object map; that starts with '{' and fails JWT parse
+            // with "illegal base64 data at input byte 0". Retry once with the single presentation.
+            val bareVp = unwrapSingleDcqlVpToken(parameters["vp_token"])
+            if (bareVp != null && verifierRejectedDcqlVpTokenMap(responseBody)) {
+                log.info {
+                    "Retrying direct_post with bare SD-JWT vp_token " +
+                        "(verifier rejected DCQL JSON map)"
+                }
+                val retryParameters = ParametersBuilder().apply {
+                    parameters.forEach { name, values ->
+                        if (name == "vp_token") append(name, bareVp)
+                        else values.forEach { append(name, it) }
+                    }
+                }.build()
+                response = webPostToken.sendForm(responseUri, retryParameters)
+                responseBody = response.bodyAsText()
+                if (!response.status.isSuccess()) {
+                    log.warn { "Verifier direct_post retry ${response.status.value}: $responseBody" }
+                }
+            }
+        }
         // OpenID4VP direct_post: many verifiers (incl. eduWallet sandbox) return 200 with an
         // empty body on success. Optional JSON may include redirect_uri.
         val responseBodyJson = parseVerifierDirectPostBody(responseBody)
@@ -286,6 +310,30 @@ object WalletPresentFunctionality2 {
                 log.debug { "Verifier direct_post response was not JSON (${trimmed.length} chars); treating as empty acknowledgement" }
                 buildJsonObject { }
             }
+    }
+
+    /**
+     * When [vpToken] is a DCQL VP Token object with exactly one credential id and one
+     * presentation string, return that string. Otherwise null (leave as-is).
+     */
+    internal fun unwrapSingleDcqlVpToken(vpToken: String?): String? {
+        if (vpToken.isNullOrBlank()) return null
+        val trimmed = vpToken.trim()
+        if (!trimmed.startsWith("{")) return null
+        val obj = runCatching { Json.parseToJsonElement(trimmed).jsonObject }.getOrNull() ?: return null
+        if (obj.size != 1) return null
+        val presentations = obj.values.single()
+        val arr = presentations as? JsonArray ?: return null
+        if (arr.size != 1) return null
+        val presentation = arr.single() as? JsonPrimitive ?: return null
+        return presentation.contentOrNull?.takeIf { it.isNotBlank() && !it.trimStart().startsWith("{") }
+    }
+
+    internal fun verifierRejectedDcqlVpTokenMap(responseBody: String): Boolean {
+        val lower = responseBody.lowercase()
+        return "illegal base64" in lower ||
+            "token is malformed" in lower ||
+            "invalid jwt format" in lower
     }
 
     /**
@@ -733,20 +781,17 @@ object WalletPresentFunctionality2 {
         holderKey: Key,
         transactionData: List<String>? = null,
     ): String {
-        selectedDisclosures.map { it.asEncoded() }
         log.trace { "Creating KB+JWT for disclosures: $selectedDisclosures" }
-        // Per RFC 9901 §4.3.1, sd_hash is computed over:
-        // <Issuer-signed JWT>~<Disclosure 1>~...~<Disclosure N>~
-        // The trailing ~ is always required, even when there are no disclosures.
-        // disclose() returns "issuer_jwt~disc1~disc2" (no trailing ~) for non-empty disclosures,
-        // and "issuer_jwt~" (trailing ~) for zero disclosures — so we only append ~ when needed.
-        val stringToHash = if (selectedDisclosures.isNotEmpty()) {
-            "$disclosed~"
-        } else {
-            disclosed // disclose() already produces "issuer_jwt~" for zero disclosures
-        }
+        // Per RFC 9901 §4.3.1, sd_hash is SHA-256 over the US-ASCII SD-JWT *without* the KB-JWT:
+        //   <Issuer-signed JWT>~<Disclosure 1>~...~<Disclosure N>~
+        // Trailing ~ is mandatory. Match SdJwtVcPresenter's assembly
+        // (append ~ only when disclose() did not already end with one).
+        val stringToHash = if (disclosed.endsWith("~")) disclosed else "$disclosed~"
 
-        log.trace { "Wallet presentation: Calculating hash for SD-JWT kb from: $stringToHash" }
+        log.debug {
+            "KB-JWT sd_hash over ${stringToHash.length} chars " +
+                "(disclosures=${selectedDisclosures.size}, endsWithTilde=${disclosed.endsWith("~")})"
+        }
         val sdHash = calculateSha256Base64Url(stringToHash)
         val decodedTransactionData = decodeList(transactionData.orEmpty())
         val transactionDataHashAlgorithm = resolveHashAlgorithm(decodedTransactionData)
@@ -763,6 +808,9 @@ object WalletPresentFunctionality2 {
             put("typ", JsonPrimitive("kb+jwt"))
         }
 
+        require(!audience.isNullOrBlank()) {
+            "KB-JWT aud (authorization request client_id) is required for SD-JWT key binding"
+        }
         val kbJwtPayload = buildJsonObject {
             put("aud", JsonPrimitive(audience))
             put("nonce", JsonPrimitive(nonce))

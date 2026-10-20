@@ -56,6 +56,17 @@ rm -f "$dist_dst"/lib/bcprov-jdk18on-*.jar \
       "$dist_dst"/lib/bcpkix-jdk18on-*.jar \
       "$dist_dst"/lib/bcutil-jdk18on-*.jar
 
+# Drop stock CredentialQuery from waltid-dcql so the secdsa overlay (optional meta→NoMeta)
+# cannot lose if classpath order changes. Overlay jar remains first and is the only copy.
+dcql_jar=$(ls "$dist_dst"/lib/waltid-dcql-jvm-*.jar 2>/dev/null | head -1 || true)
+if [[ -n "${dcql_jar}" ]]; then
+  zip -d "$dcql_jar" \
+    'id/walt/dcql/models/CredentialQuery.class' \
+    'id/walt/dcql/models/CredentialQuery$Companion.class' \
+    'id/walt/dcql/models/CredentialQuery$$serializer.class' \
+    >/dev/null || true
+fi
+
 echo "==> built $dist_dst ($(du -sh "$dist_dst" | awk '{print $1}'))"
 echo "Next: docker compose build wallet-api2"
 echo "Smoke (stack up): ./scripts/smoke-holder-contract.sh"
