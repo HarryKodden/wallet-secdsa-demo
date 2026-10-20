@@ -268,7 +268,8 @@ object WalletPresentFunctionality2 {
         var response = webPostToken.sendForm(responseUri, parameters)
         var responseBody = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            log.warn { "Verifier direct_post ${response.status.value}: $responseBody" }
+            // INFO: lab demos often filter WARN; body is essential for SURF OIDF debugging.
+            log.info { "Verifier direct_post ${response.status.value}: $responseBody" }
             // SURF OIDF (and some other labs) still treat vp_token as a bare SD-JWT string.
             // OID4VP 1.0 DCQL sends a JSON object map; that starts with '{' and fails JWT parse
             // with "illegal base64 data at input byte 0". Retry once with the single presentation.
@@ -287,7 +288,7 @@ object WalletPresentFunctionality2 {
                 response = webPostToken.sendForm(responseUri, retryParameters)
                 responseBody = response.bodyAsText()
                 if (!response.status.isSuccess()) {
-                    log.warn { "Verifier direct_post retry ${response.status.value}: $responseBody" }
+                    log.info { "Verifier direct_post retry ${response.status.value}: $responseBody" }
                 }
             }
         }

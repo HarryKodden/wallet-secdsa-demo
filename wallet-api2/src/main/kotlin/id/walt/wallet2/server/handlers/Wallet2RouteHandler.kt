@@ -1119,6 +1119,11 @@ object Wallet2RouteHandler {
                                 request = req,
                                 transactionDataTypeRegistry = TransactionDataTypeRegistry(emptySet()),
                             )
+                            if (result.transmissionSuccess == false) {
+                                log.info {
+                                    "present transmission failed: ${result.verifierResponse}"
+                                }
+                            }
                             Wallet2EventLog.append(
                                 walletId = wallet.id,
                                 event = "Credential",
@@ -1127,6 +1132,7 @@ object Wallet2RouteHandler {
                                 data = eventData(
                                     "redirect_to" to (result.redirectTo ?: ""),
                                     "transmission_success" to (result.transmissionSuccess?.toString() ?: ""),
+                                    "verifier_response" to (result.verifierResponse?.toString() ?: ""),
                                 ),
                             )
                             call.respond(result)
