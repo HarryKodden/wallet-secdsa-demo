@@ -238,11 +238,17 @@ export default defineNuxtConfig({
                 process.env.WALLET_VERIFIER_PUBLIC_URL_PREFIX ||
                 "",
 
-            // OID4VCI authorization_code client (separate from wallet login OIDC)
+            // OID4VCI authorization_code client (separate from wallet login OIDC).
+            // Prefer live env via oidc-env.server.ts / resolveOidcEnv at runtime.
             oid4vciClientId: process.env.OID4VCI_CLIENT_ID || "wallet-secdsa-demo",
             oid4vciRedirectUri:
                 process.env.OID4VCI_REDIRECT_URI ||
-                `${(process.env.OIDC_BASE_URL || "http://localhost:7115").replace(/\/$/, "")}/oid4vci/callback`,
+                `${(
+                    process.env.OIDC_BASE_URL ||
+                    process.env.WALLET_PUBLIC_BASE_URL ||
+                    process.env.PUBLIC_BASE_URL ||
+                    "http://localhost:7115"
+                ).replace(/\/$/, "")}/oid4vci/callback`,
             // Issuer user-login AS (non-secret) — Lab auth-code UI; secret stays on issuer-api2
             issuerAsAuthorizeUrl: process.env.ISSUER_AS_AUTHORIZE_URL || "",
             issuerAsTokenUrl: process.env.ISSUER_AS_TOKEN_URL || "",

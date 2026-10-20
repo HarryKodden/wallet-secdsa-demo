@@ -2,6 +2,7 @@ import {
     isIssuerLabConfigured,
     isVerifierLabConfigured,
 } from "../../../utils/labApis";
+import {resolveOidcEnv} from "../../../utils/oidcEnv";
 
 /**
  * Lab AS / auth-code configuration (non-secret) for the Scan Lab UI.
@@ -14,6 +15,7 @@ import {
  */
 export default defineEventHandler(() => {
     const config = useRuntimeConfig();
+    const oidcEnv = resolveOidcEnv();
     const authorizeUrl = String(
         process.env.ISSUER_AS_AUTHORIZE_URL || config.public.issuerAsAuthorizeUrl || "",
     ).trim();
@@ -54,8 +56,9 @@ export default defineEventHandler(() => {
             isDemoDefault: demoKeycloak,
         },
         oid4vci: {
-            clientId: String(config.public.oid4vciClientId || ""),
-            redirectUri: String(config.public.oid4vciRedirectUri || ""),
+            // Live env (OIDC_BASE_URL / OID4VCI_REDIRECT_URI) — not bake-time localhost.
+            clientId: oidcEnv.oid4vciClientId || String(config.public.oid4vciClientId || ""),
+            redirectUri: oidcEnv.oid4vciRedirectUri || String(config.public.oid4vciRedirectUri || ""),
         },
     };
 });

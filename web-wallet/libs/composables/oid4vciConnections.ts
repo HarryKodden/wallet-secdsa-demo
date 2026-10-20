@@ -51,15 +51,57 @@ function newId(prefix: string): string {
     return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** True when the URL host is a local-only loopback address. */
+export function isLoopbackHttpUrl(url: string): boolean {
+    try {
+        const u = new URL(url);
+        return (
+            u.hostname === "localhost" ||
+            u.hostname === "127.0.0.1" ||
+            u.hostname === "[::1]" ||
+            u.hostname === "::1"
+        );
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * When the wallet is opened on a public origin but deploy/runtime still has a
+ * loopback OID4VCI redirect_uri (baked image default or stale localStorage),
+ * rewrite to `${window.location.origin}/oid4vci/callback` so the AS returns
+ * to the public wallet URL.
+ */
+export function publicAwareOid4vciRedirectUri(configured: string): string {
+    const trimmed = configured.trim();
+    const fallbackPath = "/oid4vci/callback";
+    if (typeof window === "undefined") return trimmed || `http://localhost:7115${fallbackPath}`;
+
+    const origin = window.location.origin.replace(/\/$/, "");
+    const onPublicOrigin = !isLoopbackHttpUrl(origin);
+    if (!trimmed) {
+        return `${origin}${fallbackPath}`;
+    }
+    if (onPublicOrigin && isLoopbackHttpUrl(trimmed)) {
+        try {
+            const path = new URL(trimmed).pathname || fallbackPath;
+            return `${origin}${path.startsWith("/") ? path : `/${path}`}`;
+        } catch {
+            return `${origin}${fallbackPath}`;
+        }
+    }
+    return trimmed;
+}
+
 export function envDefaultsFromRuntime(runtimeConfig: {
     public: Record<string, unknown>;
 }): EnvOid4vciDefaults {
     const clientId =
         String(runtimeConfig.public.oid4vciClientId || "").trim() || "wallet-secdsa-demo";
-    const redirectUri =
+    const configured =
         String(runtimeConfig.public.oid4vciRedirectUri || "").trim() ||
         `${String(runtimeConfig.public.oidcPublicBaseUrl || "http://localhost:7115").replace(/\/$/, "")}/oid4vci/callback`;
-    return {clientId, redirectUri};
+    return {clientId, redirectUri: publicAwareOid4vciRedirectUri(configured)};
 }
 
 export function buildLabConnection(defaults: EnvOid4vciDefaults): Oid4vciConnection {
@@ -207,9 +249,12 @@ export function resolveOid4vciClientConfigFromConnections(runtimeConfig: {
         };
     }
     const connection = getActiveConnection(defaults);
+    const redirectUri = publicAwareOid4vciRedirectUri(
+        connection.redirectUri || defaults.redirectUri,
+    );
     return {
         clientId: connection.clientId || defaults.clientId,
-        redirectUri: connection.redirectUri || defaults.redirectUri,
+        redirectUri,
         connection,
         forcePar: connection.forcePar,
         useDpop: connection.useDpop,
