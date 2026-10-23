@@ -31,6 +31,8 @@ type ResolveVpRequestResult = {
   responseUri?: string | null;
   hasRequestUri?: boolean;
   dcqlQuery?: Record<string, unknown> | null;
+  /** From resolve-request — pass on /present so single-use request_uri is not re-fetched. */
+  resolutionHandle?: string | null;
 };
 
 type MatchCredentialsResult = {
@@ -446,6 +448,10 @@ export async function usePresentation(query: any) {
           ...(holderKeyId ? {keyId: holderKeyId} : {}),
           ...(holderDid ? {did: holderDid} : {}),
           ...(auth.mode === "grant" ? {signGrant: auth.signGrant} : {}),
+          // Summa / Sphereon serve request_uri once — reuse resolve-request cache.
+          ...(resolved.resolutionHandle
+            ? {resolutionHandle: resolved.resolutionHandle}
+            : {}),
         },
       });
 

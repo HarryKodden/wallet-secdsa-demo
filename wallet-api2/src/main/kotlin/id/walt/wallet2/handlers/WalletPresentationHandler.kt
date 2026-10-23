@@ -2,11 +2,13 @@
 
 package id.walt.wallet2.handlers
 
+import dev.whyoleg.cryptography.random.CryptographyRandom
 import id.walt.credentials.formats.DigitalCredential
 import id.walt.credentials.signatures.SdJwtCredentialSignature
 import id.walt.crypto.keys.DirectSerializedKey
 import id.walt.crypto.keys.Key
 import id.walt.crypto.utils.Base64Utils.decodeFromBase64Url
+import id.walt.crypto.utils.Base64Utils.encodeToBase64Url
 import id.walt.dcql.DcqlDisclosure
 import id.walt.dcql.DcqlMatcher
 import id.walt.dcql.RawDcqlCredential
@@ -91,6 +93,11 @@ data class PresentCredentialRequest(
      * (purpose=`presentation`). Required when `SOLE_CONTROL_SIGNING=true`.
      */
     val signGrant: String? = null,
+    /**
+     * Handle from [ResolveVpRequestResult.resolutionHandle]. Prefer this when the UI already
+     * called `/present/resolve-request` — Summa and similar verifiers serve `request_uri` once.
+     */
+    val resolutionHandle: String? = null,
 ) : VpRequestSource
 
 internal fun WalletPresentResult.presentationOutcomeEvent(): WalletSessionEvent = when {
@@ -137,6 +144,11 @@ data class ResolveVpRequestResult(
     val hasRequestUri: Boolean,
     /** The DCQL query from the authorization request, ready to pass to match-credentials or present. */
     val dcqlQuery: DcqlQuery?,
+    /**
+     * Opaque handle for [PresentCredentialRequest.resolutionHandle]. Pass this on `/present`
+     * so a single-use `request_uri` is not fetched again.
+     */
+    val resolutionHandle: String? = null,
 )
 
 @Serializable
@@ -327,7 +339,10 @@ object WalletPresentationHandler {
         onEvent(WalletSessionEvent.presentation_request_parsed)
 
         // Match first so we can bind the holder key to credential cnf (not wallet default).
-        val resolvedAuthorizationRequest = resolveAuthorizationRequest(request.requestUrl)
+        val resolvedAuthorizationRequest = resolveAuthorizationRequest(
+            requestUrl = request.requestUrl,
+            resolutionHandle = request.resolutionHandle,
+        )
         val query = requireNotNull(resolvedAuthorizationRequest.authorizationRequest.dcqlQuery) {
             "Authorization Request must contain dcql_query"
         }
@@ -633,7 +648,8 @@ object WalletPresentationHandler {
      * of this URL does not fetch a single-use `request_uri` again.
      */
     suspend fun resolveRequest(request: ResolveVpRequestRequest): ResolveVpRequestResult {
-        val authRequest = resolveAuthorizationRequest(request.requestUrl).authorizationRequest
+        val (resolved, handle) = resolveAuthorizationRequestWithHandle(request.requestUrl)
+        val authRequest = resolved.authorizationRequest
 
         return ResolveVpRequestResult(
             authorizationRequest = authRequest,
@@ -642,6 +658,7 @@ object WalletPresentationHandler {
             responseUri = authRequest.responseUri?.let { Url(it) },
             hasRequestUri = request.requestUrl.parameters.contains("request_uri"),
             dcqlQuery = authRequest.dcqlQuery,
+            resolutionHandle = handle,
         )
     }
 
@@ -1158,13 +1175,38 @@ object WalletPresentationHandler {
         }
     }
 
-    private suspend fun resolveAuthorizationRequest(requestUrl: Url): ResolvedAuthorizationRequest {
-        val key = requestUrl.toString()
+    private suspend fun resolveAuthorizationRequest(
+        requestUrl: Url,
+        resolutionHandle: String? = null,
+    ): ResolvedAuthorizationRequest =
+        resolveAuthorizationRequestWithHandle(requestUrl, resolutionHandle).first
+
+    private suspend fun resolveAuthorizationRequestWithHandle(
+        requestUrl: Url,
+        resolutionHandle: String? = null,
+    ): Pair<ResolvedAuthorizationRequest, String> {
         val now = Clock.System.now()
+        val lookupKeys = cacheKeysFor(requestUrl, resolutionHandle)
+
         resolvedRequestMutex.withLock {
-            val cached = resolvedRequestsByUrl[key]
-            if (cached != null && cached.expiresAt > now) return cached.resolved
-            resolvedRequestsByUrl.remove(key)
+            for (key in lookupKeys) {
+                val cached = resolvedRequestsByUrl[key]
+                if (cached != null && cached.expiresAt > now) {
+                    log.info {
+                        "Reusing cached AuthorizationRequest for single-use request_uri " +
+                            "(key=${key.take(96)})"
+                    }
+                    return cached.resolved to cached.handle
+                }
+                if (cached != null) resolvedRequestsByUrl.remove(key)
+            }
+        }
+
+        if (!resolutionHandle.isNullOrBlank()) {
+            error(
+                "Presentation resolution handle '$resolutionHandle' is unknown or expired. " +
+                    "Call /present/resolve-request again with a fresh QR (request_uri is single-use).",
+            )
         }
 
         val fetcher = WebDataFetcher(WebDataFetcherId.OPENID4VP_WALLET_RESOLVE_AUTHORIZATIONREQUEST)
@@ -1180,6 +1222,13 @@ object WalletPresentationHandler {
             },
         )
 
+        val handle = newResolutionHandle()
+        val expiresAt = Clock.System.now() + resolvedRequestCacheTtl
+        val entry = CachedResolvedAuthorizationRequest(
+            resolved = resolved,
+            handle = handle,
+            expiresAt = expiresAt,
+        )
         resolvedRequestMutex.withLock {
             val storedAt = Clock.System.now()
             resolvedRequestsByUrl.entries.removeAll { it.value.expiresAt <= storedAt }
@@ -1187,16 +1236,29 @@ object WalletPresentationHandler {
                 val oldest = resolvedRequestsByUrl.keys.firstOrNull() ?: break
                 resolvedRequestsByUrl.remove(oldest)
             }
-            resolvedRequestsByUrl[key] = CachedResolvedAuthorizationRequest(
-                resolved = resolved,
-                expiresAt = storedAt + resolvedRequestCacheTtl,
-            )
+            for (key in cacheKeysFor(requestUrl, handle)) {
+                resolvedRequestsByUrl[key] = entry
+            }
         }
-        return resolved
+        log.info {
+            "Cached AuthorizationRequest handle=$handle request_uri=" +
+                (requestUrl.parameters["request_uri"]?.take(80) ?: "<none>")
+        }
+        return resolved to handle
     }
+
+    private fun cacheKeysFor(requestUrl: Url, resolutionHandle: String?): List<String> = buildList {
+        resolutionHandle?.takeIf { it.isNotBlank() }?.let { add("handle:$it") }
+        requestUrl.parameters["request_uri"]?.takeIf { it.isNotBlank() }?.let { add("request_uri:$it") }
+        add("url:${requestUrl}")
+    }
+
+    private fun newResolutionHandle(): String =
+        CryptographyRandom.nextBytes(18).encodeToBase64Url()
 
     private data class CachedResolvedAuthorizationRequest(
         val resolved: ResolvedAuthorizationRequest,
+        val handle: String,
         val expiresAt: kotlin.time.Instant,
     )
 
