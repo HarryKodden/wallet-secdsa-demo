@@ -20,8 +20,7 @@ object ClientIdPrefixAuthenticator {
             is VerifierAttestation -> clientId.authenticateVerifierAttestation(clientId, context)
             is PreRegistered -> clientId.authenticatePreRegistered(clientId, preRegisteredMetadataProvider)
 
-            // OpenIdFederation requires OpenID Federation trust chain resolution (not yet implemented)
-            is OpenIdFederation -> ClientValidationResult.Failure(ClientIdError.FederationError("OpenID Federation trust chain resolution is not yet implemented"))
+            is OpenIdFederation -> clientId.authenticateOpenIdFederation(clientId, context)
             // Origin is not allowed to be accepted by the wallet
             is Unsupported -> ClientValidationResult.Failure(ClientIdError.UnsupportedPrefix(clientId.prefix))
         }

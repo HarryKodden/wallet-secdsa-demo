@@ -82,8 +82,6 @@ object AuthorizationRequestResolver {
         private val unsupportedClientIdPrefixes = setOf(
             // Pre-registered clients require a verifier metadata provider; this resolver uses the authenticator default.
             ClientIdPrefix.PRE_REGISTERED,
-            // OpenID Federation parsing exists, but trust chain resolution is not implemented yet.
-            ClientIdPrefix.OPENID_FEDERATION,
         )
 
         private val clientIdPrefixesSupported = (ClientIdPrefix.entries - unsupportedClientIdPrefixes)
@@ -157,33 +155,60 @@ object AuthorizationRequestResolver {
         append("wallet_nonce", walletNonce)
     }.formUrlEncode()
 
+    /**
+     * Some QR / deep-link wrappers emit `openid4vp://?openid4vp://?client_id=…`.
+     * After the first `?`, the second scheme becomes part of the query name
+     * (`openid4vp://?client_id`), so [Url.parameters] loses `client_id` while
+     * still exposing `request_uri`. Rebuild a clean openid4vp URL when needed.
+     */
+    internal fun normalizePresentationRequestUrl(requestUrl: Url): Url {
+        if (!requestUrl.parameters["client_id"].isNullOrBlank()) return requestUrl
+
+        val mangledClientIdKey = requestUrl.parameters.names().firstOrNull { name ->
+            name != "client_id" && name.endsWith("client_id")
+        } ?: return requestUrl
+
+        val clientId = requestUrl.parameters[mangledClientIdKey] ?: return requestUrl
+        val rebuilt = Parameters.build {
+            append("client_id", clientId)
+            requestUrl.parameters["request_uri"]?.let { append("request_uri", it) }
+            requestUrl.parameters["request_uri_method"]?.let { append("request_uri_method", it) }
+            requestUrl.parameters["request"]?.let { append("request", it) }
+        }.formUrlEncode()
+        log.info {
+            "Normalized doubled openid4vp deep link (mangled query key '$mangledClientIdKey')"
+        }
+        return Url("openid4vp://?$rebuilt")
+    }
+
     suspend fun resolve(
         requestUrl: Url,
         unsignedRequestObjectPolicy: UnsignedRequestObjectPolicy,
         enforceFinalRequestObject: Boolean = true,
         fetchRequestUri: suspend (requestUri: String, requestUriMethod: RequestUriHttpMethod?) -> RequestUriFetchResponse,
     ): ResolvedAuthorizationRequest {
-        val requestUri = requestUrl.parameters["request_uri"]
+        val normalizedUrl = normalizePresentationRequestUrl(requestUrl)
+        val requestUri = normalizedUrl.parameters["request_uri"]
         if (requestUri != null) {
             return resolveFromRequestUri(
                 requestUri = requestUri,
-                requestUriMethod = requestUrl.parameters["request_uri_method"],
-                outerClientId = requestUrl.parameters["client_id"],
+                requestUriMethod = normalizedUrl.parameters["request_uri_method"],
+                outerClientId = normalizedUrl.parameters["client_id"],
                 enforceFinalRequestObject = enforceFinalRequestObject,
                 unsignedRequestObjectPolicy = unsignedRequestObjectPolicy,
                 fetchRequestUri = fetchRequestUri,
             )
         }
 
-        val requestObject = requestUrl.parameters["request"]
+        val requestObject = normalizedUrl.parameters["request"]
         if (requestObject != null) return resolveFromRequestObject(
             requestObject = requestObject,
-            outerClientId = requestUrl.parameters["client_id"],
+            outerClientId = normalizedUrl.parameters["client_id"],
             enforceFinalRequestObject = enforceFinalRequestObject,
             unsignedRequestObjectPolicy = unsignedRequestObjectPolicy,
         )
 
-        return ResolvedAuthorizationRequest.Plain(parseParameters(requestUrl.parameters))
+        return ResolvedAuthorizationRequest.Plain(parseParameters(normalizedUrl.parameters))
     }
 
     fun parseParameters(parameters: Parameters): AuthorizationRequest {

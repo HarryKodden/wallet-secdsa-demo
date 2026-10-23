@@ -1,7 +1,7 @@
 import {encodeDisclosure} from "./disclosures.ts";
 import {useCurrentWallet} from "./accountWallet.ts";
 import {computed, type Ref, ref, watch} from "vue";
-import {decodeRequest, rewriteLoopbackVerifierRequest} from "./siop-requests.ts";
+import {decodeRequest, fixRequest, rewriteLoopbackVerifierRequest} from "./siop-requests.ts";
 import {navigateTo} from "nuxt/app";
 import {useSecdsaPin} from "./secdsaPin.ts";
 import {authorizeHolderSign} from "./soleControlSignGrant.ts";
@@ -147,7 +147,7 @@ export async function usePresentation(query: any) {
   const currentWallet = useCurrentWallet();
   const runtimeConfig = useRuntimeConfig();
   const originalRequest = rewriteLoopbackVerifierRequest(
-    decodeRequest(query.request as string),
+    fixRequest(decodeRequest(query.request as string)),
     String(runtimeConfig.public.verifierPublicUrlPrefix || "").trim(),
   );
 

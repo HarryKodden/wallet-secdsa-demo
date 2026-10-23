@@ -20,7 +20,12 @@ const OFFER_URI_HTTPS_RE =
     /https?:\/\/[^\s"'<>]*(?:credential-offer|get-credential-offer|credential_offer|\/offer\b|openid-credential-offer)[^\s"'<>]*/i;
 
 export function fixRequest(req: string) {
-    return req.replaceAll("\n", "").trim();
+    let out = req.replaceAll("\n", "").trim();
+    // Some verifiers / QR wrappers emit openid4vp://?openid4vp://?client_id=…
+    out = out.replace(/^(openid4vp:\/\/\?)+/i, "openid4vp://?");
+    out = out.replace(/^(mdoc-openid4vp:\/\/\?)+/i, "mdoc-openid4vp://?");
+    out = out.replace(/^(haip:\/\/\?)+/i, "haip://?");
+    return out;
 }
 
 /**
