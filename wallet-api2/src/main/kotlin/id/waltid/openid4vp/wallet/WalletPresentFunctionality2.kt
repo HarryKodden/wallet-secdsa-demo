@@ -268,13 +268,18 @@ object WalletPresentFunctionality2 {
         val formKeys = parameters.names().sorted()
         val isErrorResponse = parameters.contains("error")
         val vpLen = parameters["vp_token"]?.length ?: 0
+        val encodedPreview = parameters.formUrlEncode().let { encoded ->
+            if (encoded.length <= 120) encoded
+            else encoded.take(120) + "…(${encoded.length} chars)"
+        }
         log.info {
             "Verifier direct_post → $responseUri keys=$formKeys " +
                 (if (isErrorResponse) {
                     "error=${parameters["error"]} desc=${parameters["error_description"]?.take(160)}"
                 } else {
                     "vp_token_chars=$vpLen"
-                })
+                }) +
+                " body=$encodedPreview"
         }
         var response = webPostToken.sendForm(responseUri, parameters)
         var responseBody = response.bodyAsText()

@@ -348,13 +348,56 @@ object WalletPresentationHandler {
         }
         log.trace { "Selecting credentials for DCQL query: ${query.credentials.map { it.id }}" }
         val matched = selectFromStores(wallet, query)
+        log.info {
+            "DCQL matched for present: " +
+                matched.mapValues { (_, results) ->
+                    results.map { match ->
+                        val raw = match.credential as? RawDcqlCredential
+                        val digital = raw?.originalCredential as? DigitalCredential
+                        val vct = digital?.credentialData?.get("vct")?.toString()
+                            ?: match.credential.data["vct"]?.toString()
+                        "${match.credential.id}(vct=$vct,fmt=${digital?.format ?: match.credential.format})"
+                    }
+                }
+        }
         log.trace { "DCQL matched queryIds: ${matched.keys}" }
         onEvent(WalletSessionEvent.presentation_credentials_selected)
 
         val key = resolvePresentationSigningKey(wallet, request.keyId, matched)
         val did = resolvePresentationHolderDid(wallet, request.did, matched)
         val keyId = key.getKeyId()
-        log.trace { "presentCredential: keyId=$keyId, did=$did, requestUrl=${request.requestUrl}" }
+        log.info { "presentCredential: keyId=$keyId, did=$did, matchedQueries=${matched.keys}" }
+
+        // Fail in the API response (not via verifier access_denied) when this wallet cannot
+        // fulfill — posting access_denied to Summa surfaces as a confusing "policy" 403.
+        val precheck = PresentationRequestValidator.validate(
+            resolvedRequest = resolvedAuthorizationRequest,
+            transactionDataTypeRegistry = transactionDataTypeRegistry,
+            formatCapabilities = WalletPresentationFormatRegistry.capabilitiesFromKeyTypes(setOf(key.keyType)),
+        )
+        if (precheck is PresentationRequestValidationResult.Invalid) {
+            throw IllegalArgumentException(
+                "${precheck.error.code.code}: ${precheck.error.message}",
+            )
+        }
+        val availableIds = matched.filterValues { it.isNotEmpty() }.keys
+        PresentationRequestValidator.validateTransactionDataCredentialAvailability(
+            transactionData = (precheck as PresentationRequestValidationResult.Valid).transactionData,
+            availableCredentialQueryIds = availableIds,
+        )?.let { err ->
+            throw IllegalArgumentException("${err.code.code}: ${err.message}")
+        }
+        PresentationRequestValidator.validateCredentialAvailability(
+            query = query,
+            availableCredentialQueryIds = availableIds,
+        )?.let { err ->
+            throw IllegalArgumentException("${err.code.code}: ${err.message}")
+        }
+        if (matched.isEmpty()) {
+            throw IllegalArgumentException(
+                "access_denied: No wallet credentials matched this presentation request",
+            )
+        }
 
         val signGrantSession = id.walt.wallet2.solecontrol.SignGrantGuard.requireConsumed(
             signGrant = request.signGrant,
