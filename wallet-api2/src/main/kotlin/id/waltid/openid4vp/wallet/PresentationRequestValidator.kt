@@ -9,7 +9,9 @@ import id.walt.verifier.openid.models.openid.OpenID4VPResponseType
 import id.walt.verifier.openid.transactiondata.DecodedTransactionData
 import id.walt.verifier.openid.transactiondata.TransactionDataTypeRegistry
 import id.walt.verifier.openid.transactiondata.validateRequestTransactionData
+import id.walt.verifier.openid.transactiondata.validateRequestTransactionDataStructure
 import id.waltid.openid4vp.wallet.request.ResolvedAuthorizationRequest
+import io.github.oshai.kotlinlogging.KotlinLogging
 
 /** Expected OpenID4VP request failure that can be returned through the resolved response channel. */
 data class PresentationRequestError(
@@ -35,6 +37,8 @@ sealed interface PresentationRequestValidationResult {
  * client-bound redirect URI. Failures that prevent a safe response remain local exceptions.
  */
 object PresentationRequestValidator {
+    private val log = KotlinLogging.logger {}
+
     fun validate(
         resolvedRequest: ResolvedAuthorizationRequest,
         transactionDataTypeRegistry: TransactionDataTypeRegistry,
@@ -102,12 +106,22 @@ object PresentationRequestValidator {
             )
         }
 
+        val credentialQueriesById = query.credentials.associateBy { it.id }
         val transactionData = runCatching {
-            validateRequestTransactionData(
-                transactionData = request.transactionData,
-                typeRegistry = transactionDataTypeRegistry,
-                credentialQueriesById = query.credentials.associateBy { it.id },
-            )
+            // Empty registry (wallet-api2 routes) → structure-only check so unknown lab
+            // transaction_data types do not hard-fail presentation.
+            if (transactionDataTypeRegistry.types.isEmpty()) {
+                validateRequestTransactionDataStructure(
+                    transactionData = request.transactionData,
+                    credentialQueriesById = credentialQueriesById,
+                )
+            } else {
+                validateRequestTransactionData(
+                    transactionData = request.transactionData,
+                    typeRegistry = transactionDataTypeRegistry,
+                    credentialQueriesById = credentialQueriesById,
+                )
+            }
         }.getOrElse { error ->
             return invalid(
                 WalletPresentFunctionality2.OID4VPErrorCode.INVALID_TRANSACTION_DATA,
@@ -200,8 +214,13 @@ object PresentationRequestValidator {
                 require(!request.responseUri.isNullOrBlank()) {
                     "Authorization Request response_uri is required; an error response cannot be sent safely"
                 }
-                require(request.redirectUri == null) {
-                    "redirect_uri must not be present with response_mode=${request.responseMode}"
+                // Spec: redirect_uri must not be used with direct_post. Some lab verifiers
+                // (Sphereon Summa) still echo it; ignore when response_uri is present.
+                if (!request.redirectUri.isNullOrBlank()) {
+                    log.warn {
+                        "Ignoring redirect_uri with response_mode=${request.responseMode} " +
+                            "(using response_uri=${request.responseUri})"
+                    }
                 }
             }
 

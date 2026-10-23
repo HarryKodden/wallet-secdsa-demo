@@ -370,12 +370,18 @@ object WalletPresentationHandler {
 
         // Fail in the API response (not via verifier access_denied) when this wallet cannot
         // fulfill — posting access_denied to Summa surfaces as a confusing "policy" 403.
-        val precheck = PresentationRequestValidator.validate(
-            resolvedRequest = resolvedAuthorizationRequest,
-            transactionDataTypeRegistry = transactionDataTypeRegistry,
-            formatCapabilities = WalletPresentationFormatRegistry.capabilitiesFromKeyTypes(setOf(key.keyType)),
-        )
+        val precheck = try {
+            PresentationRequestValidator.validate(
+                resolvedRequest = resolvedAuthorizationRequest,
+                transactionDataTypeRegistry = transactionDataTypeRegistry,
+                formatCapabilities = WalletPresentationFormatRegistry.capabilitiesFromKeyTypes(setOf(key.keyType)),
+            )
+        } catch (e: Exception) {
+            log.warn(e) { "present precheck threw: ${e.message}" }
+            throw e
+        }
         if (precheck is PresentationRequestValidationResult.Invalid) {
+            log.warn { "present precheck invalid: ${precheck.error.code.code} — ${precheck.error.message}" }
             throw IllegalArgumentException(
                 "${precheck.error.code.code}: ${precheck.error.message}",
             )
@@ -385,12 +391,14 @@ object WalletPresentationHandler {
             transactionData = (precheck as PresentationRequestValidationResult.Valid).transactionData,
             availableCredentialQueryIds = availableIds,
         )?.let { err ->
+            log.warn { "present precheck availability: ${err.code.code} — ${err.message}" }
             throw IllegalArgumentException("${err.code.code}: ${err.message}")
         }
         PresentationRequestValidator.validateCredentialAvailability(
             query = query,
             availableCredentialQueryIds = availableIds,
         )?.let { err ->
+            log.warn { "present precheck availability: ${err.code.code} — ${err.message}" }
             throw IllegalArgumentException("${err.code.code}: ${err.message}")
         }
         if (matched.isEmpty()) {

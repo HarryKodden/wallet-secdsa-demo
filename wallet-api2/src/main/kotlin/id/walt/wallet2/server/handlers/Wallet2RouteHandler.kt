@@ -1138,6 +1138,9 @@ object Wallet2RouteHandler {
                             call.respond(result)
                         } catch (e: Exception) {
                             if (Oid4vcProtocolErrors.isClientProtocolFailure(e)) {
+                                log.warn(e) {
+                                    "present failed: ${e::class.simpleName}: ${e.message}"
+                                }
                                 call.respondProtocolFailure(e)
                                 return@post
                             }
