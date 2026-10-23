@@ -83,9 +83,22 @@ object DcqlMatcher {
 
             if (successfullyMatchedCredentialsForThisQuery.isNotEmpty()) {
                 if (!credentialQuery.multiple && successfullyMatchedCredentialsForThisQuery.size > 1) {
-                    log.warn { "Multiple credentials matched query '${credentialQuery.id}' but 'multiple' is false. Selecting the first: ${successfullyMatchedCredentialsForThisQuery.first().credential.id}" }
+                    // Prefer a credential that actually carries `vct` (SD-JWT VC) over an
+                    // index-order first match — wallets often hold lab JWTs without vct.
+                    val preferred = successfullyMatchedCredentialsForThisQuery
+                        .sortedWith(
+                            compareByDescending<DcqlMatchResult> { match ->
+                                match.credential.data["vct"]?.jsonPrimitive?.contentOrNull != null
+                            }.thenBy { it.credential.id },
+                        )
+                        .first()
+                    log.warn {
+                        "Multiple credentials matched query '${credentialQuery.id}' but 'multiple' is false. " +
+                            "Selecting ${preferred.credential.id} " +
+                            "(candidates=${successfullyMatchedCredentialsForThisQuery.map { it.credential.id }})"
+                    }
                     individualMatches.getOrPut(credentialQuery.id) { mutableListOf() }
-                        .add(successfullyMatchedCredentialsForThisQuery.first())
+                        .add(preferred)
                 } else {
                     individualMatches.getOrPut(credentialQuery.id) { mutableListOf() }
                         .addAll(successfullyMatchedCredentialsForThisQuery)

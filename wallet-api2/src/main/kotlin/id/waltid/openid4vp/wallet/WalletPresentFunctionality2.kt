@@ -265,6 +265,17 @@ object WalletPresentFunctionality2 {
         responseUri: String,
         parameters: Parameters,
     ): WalletPresentResult {
+        val formKeys = parameters.names().sorted()
+        val isErrorResponse = parameters.contains("error")
+        val vpLen = parameters["vp_token"]?.length ?: 0
+        log.info {
+            "Verifier direct_post → $responseUri keys=$formKeys " +
+                (if (isErrorResponse) {
+                    "error=${parameters["error"]} desc=${parameters["error_description"]?.take(160)}"
+                } else {
+                    "vp_token_chars=$vpLen"
+                })
+        }
         var response = webPostToken.sendForm(responseUri, parameters)
         var responseBody = response.bodyAsText()
         if (!response.status.isSuccess()) {
@@ -705,7 +716,14 @@ object WalletPresentFunctionality2 {
             formatCapabilities = WalletPresentationFormatRegistry.capabilitiesFromKeyTypes(setOf(holderKey.keyType)),
         )
         if (validation is PresentationRequestValidationResult.Invalid) {
-            return walletRejectHandling(authorizationRequest, validation.error.code)
+            log.warn {
+                "Rejecting presentation to verifier: ${validation.error.code.code} — ${validation.error.message}"
+            }
+            return walletRejectHandling(
+                authorizationRequest,
+                validation.error.code,
+                errorDescription = validation.error.message,
+            )
         }
         val validatedTransactionData = (validation as PresentationRequestValidationResult.Valid).transactionData
 
@@ -721,8 +739,15 @@ object WalletPresentFunctionality2 {
             availableCredentialQueryIds = credentials.filterValues { it.isNotEmpty() }.keys,
         )
         availabilityError?.let { error ->
+            log.warn {
+                "Rejecting presentation to verifier: ${error.code.code} — ${error.message}"
+            }
             PresentationRequestValidator.requireErrorResponseCanBeSent(resolvedRequest)
-            return walletRejectHandling(authorizationRequest, error.code)
+            return walletRejectHandling(
+                authorizationRequest,
+                error.code,
+                errorDescription = error.message,
+            )
         }
 
         // Apply holder policies.
