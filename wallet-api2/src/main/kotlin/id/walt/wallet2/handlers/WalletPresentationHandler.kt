@@ -37,6 +37,10 @@ import id.waltid.openid4vp.wallet.response.ResponseEncryption
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.*
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -300,6 +304,15 @@ object WalletPresentationHandler {
 
     private val previewedAuthorizationRequests =
         PreviewSessionStore<PreviewedPresentation>(sessionName = "Presentation")
+
+    /**
+     * Verifiers such as SUMMA serve `request_uri` once. The UI resolves the request for consent,
+     * then presents; the second fetch would be rejected. Reuse the first resolution for a short time.
+     */
+    private val resolvedRequestMutex = Mutex()
+    private val resolvedRequestsByUrl = LinkedHashMap<String, CachedResolvedAuthorizationRequest>()
+    private val resolvedRequestCacheTtl = 10.minutes
+    private val resolvedRequestCacheCapacity = 64
 
     /**
      * Full presentation flow: resolve VP request → DCQL-match credentials
@@ -614,15 +627,13 @@ object WalletPresentationHandler {
     // ---------------------------------------------------------------------------
 
     /**
-     * Lightweight resolver for the legacy isolated server endpoint.
+     * Resolve a VP authorization request for the consent screen.
      *
-     * This returns only request metadata for callers that still drive the older
-     * resolve -> match -> present flow. New presentation flows should use
-     * [previewPresentation], which performs full request-object resolution and
-     * verifier validation through [AuthorizationRequestResolver].
+     * Uses the same resolver as [presentCredential] and remembers the result, so a later present
+     * of this URL does not fetch a single-use `request_uri` again.
      */
     suspend fun resolveRequest(request: ResolveVpRequestRequest): ResolveVpRequestResult {
-        val authRequest = WalletPresentFunctionality2.resolveAuthorizationRequest(request.requestUrl)
+        val authRequest = resolveAuthorizationRequest(request.requestUrl).authorizationRequest
 
         return ResolveVpRequestResult(
             authorizationRequest = authRequest,
@@ -1148,8 +1159,16 @@ object WalletPresentationHandler {
     }
 
     private suspend fun resolveAuthorizationRequest(requestUrl: Url): ResolvedAuthorizationRequest {
+        val key = requestUrl.toString()
+        val now = Clock.System.now()
+        resolvedRequestMutex.withLock {
+            val cached = resolvedRequestsByUrl[key]
+            if (cached != null && cached.expiresAt > now) return cached.resolved
+            resolvedRequestsByUrl.remove(key)
+        }
+
         val fetcher = WebDataFetcher(WebDataFetcherId.OPENID4VP_WALLET_RESOLVE_AUTHORIZATIONREQUEST)
-        return AuthorizationRequestResolver.resolve(
+        val resolved = AuthorizationRequestResolver.resolve(
             requestUrl = requestUrl,
             unsignedRequestObjectPolicy = AuthorizationRequestResolver.UnsignedRequestObjectPolicy.REQUIRE_SIGNED,
             fetchRequestUri = { requestUri, requestUriMethod ->
@@ -1160,7 +1179,26 @@ object WalletPresentationHandler {
                 )
             },
         )
+
+        resolvedRequestMutex.withLock {
+            val storedAt = Clock.System.now()
+            resolvedRequestsByUrl.entries.removeAll { it.value.expiresAt <= storedAt }
+            while (resolvedRequestsByUrl.size >= resolvedRequestCacheCapacity) {
+                val oldest = resolvedRequestsByUrl.keys.firstOrNull() ?: break
+                resolvedRequestsByUrl.remove(oldest)
+            }
+            resolvedRequestsByUrl[key] = CachedResolvedAuthorizationRequest(
+                resolved = resolved,
+                expiresAt = storedAt + resolvedRequestCacheTtl,
+            )
+        }
+        return resolved
     }
+
+    private data class CachedResolvedAuthorizationRequest(
+        val resolved: ResolvedAuthorizationRequest,
+        val expiresAt: kotlin.time.Instant,
+    )
 
     internal suspend fun rememberPreviewedAuthorizationRequest(
         wallet: Wallet,
