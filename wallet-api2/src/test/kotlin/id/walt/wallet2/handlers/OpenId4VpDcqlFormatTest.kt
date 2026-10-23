@@ -137,10 +137,10 @@ class OpenId4VpDcqlFormatTest {
             originalCredential = credential,
         )
         val matches = DcqlMatcher.match(eduWalletDcqlQuery(), listOf(raw))
-        assertTrue(matches.isSuccess)
-        assertEquals(
-            0,
-            matches.getOrThrow().size,
+        // No credential_sets → every CredentialQuery is required; unmatched format is a failure
+        // (not a successful empty map).
+        assertTrue(
+            matches.isFailure,
             "Without format remap, vc+sd-jwt DCQL must not match jwt_vc_json",
         )
     }
