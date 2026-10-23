@@ -39,6 +39,7 @@ object Oid4vcProtocolErrors {
                 msg.contains("invalid_request") ||
                 msg.contains("Could not parse client_id") ||
                 msg.contains("Authorization Request") ||
+                msg.contains("AuthorizationRequest cannot be retrieved") ||
                 msg.contains("dcql_query") ||
                 msg.contains("No key available") ||
                 msg.contains("sign_grant") ||

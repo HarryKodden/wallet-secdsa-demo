@@ -241,7 +241,11 @@ object AuthorizationRequestResolver {
         val requestUriMethod = requestUriMethod?.let(::parseRequestUriMethod)
         log.trace { "Fetching AuthorizationRequest from request_uri using method ${requestUriMethod?.method ?: "get"}" }
         val response = fetchRequestUri(requestUri, requestUriMethod)
-        response.status.run { check(isSuccess()) { "AuthorizationRequest cannot be retrieved ($this) from $requestUri: ${response.body}" } }
+        // Verifier-side 404/410 (expired / already-consumed session) is a client protocol
+        // failure — use require so routes map it to 400, not an opaque 500.
+        require(response.status.isSuccess()) {
+            "AuthorizationRequest cannot be retrieved (${response.status}) from $requestUri: ${response.body}"
+        }
 
         val contentType = resolveRequestUriContentType(response.contentType, response.body)
         log.trace { "Resolved AuthorizationRequest response with content type $contentType (declared=${response.contentType})" }
