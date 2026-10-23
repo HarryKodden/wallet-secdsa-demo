@@ -119,6 +119,14 @@ object DcqlMatcher {
                 log.warn { errorMsg }
                 return Result.failure(DcqlMatchException(errorMsg))
             }
+        } ?: run {
+            // No credential_sets → every CredentialQuery is required (OpenID4VP / DCQL).
+            val missing = query.credentials.map { it.id }.filterNot(finalIndividualMatches::containsKey)
+            if (missing.isNotEmpty()) {
+                val errorMsg = "No matches found for required credential queries: $missing"
+                log.warn { errorMsg }
+                return Result.failure(DcqlMatchException(errorMsg))
+            }
         }
 
         log.info { "DCQL Match successful. Result: ${finalIndividualMatches.mapValues { entry -> entry.value.map { it.credential.id } }}" }

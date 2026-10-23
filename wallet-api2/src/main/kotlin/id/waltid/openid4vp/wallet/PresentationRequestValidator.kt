@@ -155,24 +155,39 @@ object PresentationRequestValidator {
         query: DcqlQuery,
         availableCredentialQueryIds: Set<String>,
     ): PresentationRequestError? {
-        val requirementsSatisfied = query.credentialSets
-            ?.takeIf { it.isNotEmpty() }
-            ?.filter { it.required }
-            ?.all { set ->
-                set.options.any { option ->
-                    option.isNotEmpty() && option.all(availableCredentialQueryIds::contains)
+        val sets = query.credentialSets?.takeIf { it.isNotEmpty() }
+        val requirementsSatisfied = if (sets != null) {
+            val requiredSets = sets.filter { it.required }
+            // No required sets → optional-only; matched queries are enough.
+            if (requiredSets.isEmpty()) {
+                true
+            } else {
+                requiredSets.all { set ->
+                    set.options.any { option ->
+                        option.isNotEmpty() && option.all(availableCredentialQueryIds::contains)
+                    }
                 }
             }
-            ?: query.credentials.all { it.id in availableCredentialQueryIds }
-
-        return if (requirementsSatisfied) {
-            null
         } else {
-            PresentationRequestError(
-                code = WalletPresentFunctionality2.OID4VPErrorCode.ACCESS_DENIED,
-                message = "The wallet has no credential combination that satisfies this request",
-            )
+            query.credentials.all { it.id in availableCredentialQueryIds }
         }
+
+        if (requirementsSatisfied) return null
+
+        val detail = if (sets != null) {
+            val requiredSets = sets.filter { it.required }
+            "credential_sets required options=" +
+                requiredSets.map { set -> set.options } +
+                ", available=$availableCredentialQueryIds"
+        } else {
+            val missing = query.credentials.map { it.id }.filterNot(availableCredentialQueryIds::contains)
+            "missing queries=$missing (have=$availableCredentialQueryIds, want=${query.credentials.map { it.id }})"
+        }
+        log.warn { "DCQL credential availability failed: $detail" }
+        return PresentationRequestError(
+            code = WalletPresentFunctionality2.OID4VPErrorCode.ACCESS_DENIED,
+            message = "The wallet has no credential combination that satisfies this request ($detail)",
+        )
     }
 
     /**

@@ -387,6 +387,11 @@ object WalletPresentationHandler {
             )
         }
         val availableIds = matched.filterValues { it.isNotEmpty() }.keys
+        log.info {
+            "present DCQL availability inputs: available=$availableIds " +
+                "queries=${query.credentials.map { it.id }} " +
+                "credential_sets=${query.credentialSets}"
+        }
         PresentationRequestValidator.validateTransactionDataCredentialAvailability(
             transactionData = (precheck as PresentationRequestValidationResult.Valid).transactionData,
             availableCredentialQueryIds = availableIds,
