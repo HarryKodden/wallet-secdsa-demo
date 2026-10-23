@@ -1140,9 +1140,14 @@ object WalletIssuanceHandler {
             setBody(credentialRequestJson.toString())
         }
         if (!response.status.isSuccess()) {
+            val bodyText = response.bodyAsText()
             val credentialError = runCatching {
-                lenientJson.decodeFromString<CredentialError>(response.bodyAsText())
+                lenientJson.decodeFromString<CredentialError>(bodyText)
             }.getOrNull()
+            log.info {
+                "Credential endpoint ${response.status} from ${request.credentialEndpoint}: " +
+                    (credentialError?.let { "${it.error}: ${it.description}" } ?: bodyText.take(500))
+            }
             throw CredentialEndpointException(
                 statusCode = response.status.value,
                 credentialError = credentialError,
