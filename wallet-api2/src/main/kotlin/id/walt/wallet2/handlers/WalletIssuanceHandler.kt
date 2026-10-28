@@ -32,6 +32,8 @@ import id.waltid.openid4vci.wallet.offer.CredentialOfferParser
 import id.waltid.openid4vci.wallet.proof.JwtProofBuilder
 import id.waltid.openid4vci.wallet.token.TokenRequestBuilder
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.JsonIgnoreUnknownKeys
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.request.*
@@ -394,21 +396,19 @@ data class GenerateAuthorizationUrlResult(
     val credentialConfigurationId: String,
     val credentialIssuerBaseUrl: String,
     val nonceEndpoint: Url? = null,
-    /**
-     * Authorization server used for the authorize URL.
-     * Pass this back on [ExchangeCodeRequest] so the token request hits the same server.
-     */
-    val authorizationServer: String? = null,
 )
 
+@OptIn(ExperimentalSerializationApi::class)
+@JsonIgnoreUnknownKeys
 @Serializable
 data class ExchangeCodeRequest(
     val code: String,
     /** Used to resolve AS metadata, including token endpoint, issuer, and token auth methods. */
     val credentialIssuerBaseUrl: String,
     /**
-     * Authorization server selected from the offer grant.
-     * When set, token exchange uses this server instead of authorization_servers[0].
+     * Omit this property. A null value is accepted so an older client does not fail
+     * deserialization. The token endpoint is the AS remembered for [codeVerifier],
+     * otherwise the issuer's authorization_servers[0].
      */
     val authorizationServer: String? = null,
     val codeVerifier: String? = null,
@@ -434,6 +434,18 @@ object WalletIssuanceHandler {
 
     /** Existing redirect handling for credential endpoint POSTs; nonce requests never use this path. */
     private val REDIRECT_STATUS_CODES = setOf(301, 302, 303, 307, 308)
+
+    /** How long a PKCE verifier may be used to recover the AS chosen at authorize time. */
+    private const val AUTH_CODE_AS_TTL_MS = 15 * 60 * 1000L
+
+    private data class PendingAuthorizationServer(
+        val authorizationServer: String,
+        val credentialIssuer: String,
+        val createdAtMs: Long,
+    )
+
+    private val pendingAuthorizationServers =
+        java.util.concurrent.ConcurrentHashMap<String, PendingAuthorizationServer>()
 
     /**
      * Shared [HttpClient] for all issuance step functions. Lazily initialized on first use.
@@ -1305,10 +1317,12 @@ object WalletIssuanceHandler {
         credentialIssuerBaseUrl: String,
         httpClient: HttpClient,
         authorizationServer: String? = null,
+        codeVerifier: String? = null,
     ): AuthorizationServerMetadata {
         val metadataResolver = IssuerMetadataResolver(httpClient)
         val issuerMetadata = metadataResolver.resolveCredentialIssuerMetadata(credentialIssuerBaseUrl)
         val targeted = authorizationServer?.trim()?.takeIf { it.isNotEmpty() }
+            ?: rememberedAuthorizationServer(codeVerifier, credentialIssuerBaseUrl)
         if (targeted != null) {
             val canonical = issuerMetadata.authorizationServerIssuers().firstOrNull {
                 it.trimEnd('/').equals(targeted.trimEnd('/'), ignoreCase = true)
@@ -1319,6 +1333,35 @@ object WalletIssuanceHandler {
             return metadataResolver.resolveAuthorizationServerMetadata(canonical)
         }
         return metadataResolver.resolveAuthorizationServerMetadataWithFallback(issuerMetadata)
+    }
+
+    /**
+     * Authorize and token exchange run as separate HTTP calls. The exchange body does not
+     * carry `authorizationServer`; the PKCE verifier from this call selects the same AS.
+     */
+    private fun rememberAuthorizationServer(
+        codeVerifier: String,
+        authorizationServer: String,
+        credentialIssuer: String,
+    ) {
+        val now = System.currentTimeMillis()
+        pendingAuthorizationServers.entries.removeIf { now - it.value.createdAtMs > AUTH_CODE_AS_TTL_MS }
+        pendingAuthorizationServers[codeVerifier] = PendingAuthorizationServer(
+            authorizationServer = authorizationServer,
+            credentialIssuer = credentialIssuer.trimEnd('/'),
+            createdAtMs = now,
+        )
+    }
+
+    private fun rememberedAuthorizationServer(
+        codeVerifier: String?,
+        credentialIssuer: String,
+    ): String? {
+        val key = codeVerifier?.takeIf { it.isNotBlank() } ?: return null
+        val pending = pendingAuthorizationServers.remove(key) ?: return null
+        if (System.currentTimeMillis() - pending.createdAtMs > AUTH_CODE_AS_TTL_MS) return null
+        if (!pending.credentialIssuer.equals(credentialIssuer.trimEnd('/'), ignoreCase = true)) return null
+        return pending.authorizationServer
     }
 
     private suspend fun postFollowingRedirects(
@@ -1442,6 +1485,15 @@ object WalletIssuanceHandler {
             error("PKCE method ${challengeMethod.value} is not allowed; S256 is required")
         }
 
+        val selectedAuthorizationServer = authorizationServerForOffer(
+            offer,
+            issuerMetadata,
+            preferPreAuthorized = false,
+        ) ?: asMetadata.issuer.takeIf { it.isNotBlank() }
+        selectedAuthorizationServer?.let {
+            rememberAuthorizationServer(codeVerifier, it, offer.credentialIssuer)
+        }
+
         return GenerateAuthorizationUrlResult(
             authorizationUrl = Url(authRequest.url),
             state = authRequest.state,
@@ -1449,11 +1501,6 @@ object WalletIssuanceHandler {
             credentialConfigurationId = credentialConfigurationId,
             credentialIssuerBaseUrl = offer.credentialIssuer,
             nonceEndpoint = issuerMetadata.nonceEndpoint?.let { Url(it) },
-            authorizationServer = authorizationServerForOffer(
-                offer,
-                issuerMetadata,
-                preferPreAuthorized = false,
-            ) ?: asMetadata.issuer.takeIf { it.isNotBlank() },
         )
     }
 
@@ -1561,6 +1608,7 @@ object WalletIssuanceHandler {
             credentialIssuerBaseUrl,
             httpClient,
             request.authorizationServer,
+            request.codeVerifier,
         )
         return exchangeCode(
             request = request,
@@ -1584,6 +1632,7 @@ object WalletIssuanceHandler {
             credentialIssuerBaseUrl,
             httpClient,
             request.authorizationServer,
+            request.codeVerifier,
         )
         val tokenEndpoint = asMetadata.tokenEndpoint
             ?: error("Authorization server metadata contains no token_endpoint")

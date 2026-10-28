@@ -18,8 +18,6 @@ export type Oid4vciAuthCodeContinuation = {
     state: string;
     codeVerifier: string | null;
     credentialIssuerBaseUrl: string;
-    /** AS selected from the offer grant; token exchange must use this server. */
-    authorizationServer?: string | null;
     credentialConfigurationId: string;
     credentialEndpoint: string;
     nonceEndpoint: string | null;
@@ -374,7 +372,6 @@ type AuthorizationUrlResult = {
     credentialConfigurationId: string;
     credentialIssuerBaseUrl: string;
     nonceEndpoint?: string | null;
-    authorizationServer?: string | null;
 };
 
 type ExchangeCodeResult = {
@@ -405,7 +402,6 @@ export async function completeAuthCodeIssuance(opts: {
                 code,
                 codeVerifier: continuation.codeVerifier,
                 credentialIssuerBaseUrl: continuation.credentialIssuerBaseUrl,
-                authorizationServer: continuation.authorizationServer ?? null,
                 clientId: continuation.clientId,
                 redirectUri: continuation.redirectUri,
             },
@@ -533,7 +529,6 @@ export async function startAuthCodeRedirect(opts: {
         state: result.state,
         codeVerifier: result.codeVerifier ?? null,
         credentialIssuerBaseUrl: result.credentialIssuerBaseUrl,
-        authorizationServer: result.authorizationServer ?? null,
         credentialConfigurationId: result.credentialConfigurationId,
         credentialEndpoint: opts.credentialEndpoint,
         nonceEndpoint: result.nonceEndpoint

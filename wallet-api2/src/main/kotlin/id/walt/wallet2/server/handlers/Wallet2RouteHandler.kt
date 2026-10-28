@@ -1058,7 +1058,9 @@ object Wallet2RouteHandler {
                         description =
                             "Exchanges the authorization code for an access token. " +
                             "credentialIssuerBaseUrl resolves issuer metadata. " +
-                            "authorizationServer, when returned from authorization-url, selects that server's token endpoint. " +
+                            "The token endpoint is the authorization server chosen for this PKCE verifier, " +
+                            "or authorization_servers[0] when the offer did not name one. " +
+                            "Do not send authorizationServer. " +
                             "If attestation is configured and supported by the issuer, the wallet key is used " +
                             "to create token endpoint client authentication headers."
                         request { pathParameter<String>("walletId"); body<ExchangeCodeRequest>() }
