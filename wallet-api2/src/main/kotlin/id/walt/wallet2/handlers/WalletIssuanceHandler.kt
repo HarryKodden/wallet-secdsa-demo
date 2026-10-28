@@ -394,6 +394,11 @@ data class GenerateAuthorizationUrlResult(
     val credentialConfigurationId: String,
     val credentialIssuerBaseUrl: String,
     val nonceEndpoint: Url? = null,
+    /**
+     * Authorization server used for the authorize URL.
+     * Pass this back on [ExchangeCodeRequest] so the token request hits the same server.
+     */
+    val authorizationServer: String? = null,
 )
 
 @Serializable
@@ -401,6 +406,11 @@ data class ExchangeCodeRequest(
     val code: String,
     /** Used to resolve AS metadata, including token endpoint, issuer, and token auth methods. */
     val credentialIssuerBaseUrl: String,
+    /**
+     * Authorization server selected from the offer grant.
+     * When set, token exchange uses this server instead of authorization_servers[0].
+     */
+    val authorizationServer: String? = null,
     val codeVerifier: String? = null,
     val clientId: String = DEFAULT_CLIENT_ID,
     val redirectUri: Url = Url("openid://"),
@@ -884,12 +894,37 @@ object WalletIssuanceHandler {
     }
 
     /**
+     * When the active grant names `authorization_server`, that identifier is mandatory
+     * (OID4VCI) and must be one of the issuer's `authorization_servers`.
+     * Returns null when the grant does not name a server.
+     */
+    internal fun authorizationServerForOffer(
+        offer: CredentialOffer,
+        issuerMetadata: CredentialIssuerMetadata,
+        preferPreAuthorized: Boolean,
+    ): String? {
+        val named = if (preferPreAuthorized) {
+            offer.grants?.preAuthorizedCode?.authorizationServer
+        } else {
+            offer.grants?.authorizationCode?.authorizationServer
+        }?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+
+        return issuerMetadata.authorizationServerIssuers().firstOrNull {
+            it.trimEnd('/').equals(named.trimEnd('/'), ignoreCase = true)
+        } ?: error(
+            "Offer authorization_server $named is not listed in credential issuer " +
+                "authorization_servers ${issuerMetadata.authorizationServerIssuers()}",
+        )
+    }
+
+    /**
      * Pick the AS that actually supports the grant in play.
      *
      * SURF OIDF lab lists IdP authorization servers for authorization_code while hosting
      * pre-authorized token exchange on the credential issuer itself (often with partial
      * AS metadata). Stock "first authorization_servers entry" selection hits the wrong token
-     * endpoint.
+     * endpoint. For authorization_code, a named authorization_server is mandatory.
+     * For pre-authorized_code it is only a preference: the server that advertises that grant wins.
      */
     private suspend fun resolveAuthorizationServerMetadataForOffer(
         offer: CredentialOffer,
@@ -897,15 +932,18 @@ object WalletIssuanceHandler {
         metadataResolver: IssuerMetadataResolver,
         preferPreAuthorized: Boolean,
     ): AuthorizationServerMetadata {
-        val grantPreferred =
-            if (preferPreAuthorized) {
-                offer.grants?.preAuthorizedCode?.authorizationServer
-            } else {
-                offer.grants?.authorizationCode?.authorizationServer
-            }?.takeIf { it.isNotBlank() }
+        val named = if (preferPreAuthorized) {
+            offer.grants?.preAuthorizedCode?.authorizationServer?.trim()?.takeIf { it.isNotEmpty() }
+        } else {
+            authorizationServerForOffer(offer, issuerMetadata, preferPreAuthorized = false)
+        }
+        if (!preferPreAuthorized && named != null) {
+            log.info { "Using offer authorization_server $named" }
+            return metadataResolver.resolveAuthorizationServerMetadata(named)
+        }
 
         val candidates = buildList {
-            grantPreferred?.let { add(it) }
+            named?.let { add(it) }
             add(issuerMetadata.credentialIssuer)
             addAll(issuerMetadata.authorizationServerIssuers())
         }.map { it.trimEnd('/') }.distinct()
@@ -1266,9 +1304,20 @@ object WalletIssuanceHandler {
     private suspend fun resolveAuthorizationCodeAuthorizationServerMetadata(
         credentialIssuerBaseUrl: String,
         httpClient: HttpClient,
+        authorizationServer: String? = null,
     ): AuthorizationServerMetadata {
         val metadataResolver = IssuerMetadataResolver(httpClient)
         val issuerMetadata = metadataResolver.resolveCredentialIssuerMetadata(credentialIssuerBaseUrl)
+        val targeted = authorizationServer?.trim()?.takeIf { it.isNotEmpty() }
+        if (targeted != null) {
+            val canonical = issuerMetadata.authorizationServerIssuers().firstOrNull {
+                it.trimEnd('/').equals(targeted.trimEnd('/'), ignoreCase = true)
+            } ?: error(
+                "authorization_server $targeted is not listed by credential issuer $credentialIssuerBaseUrl",
+            )
+            log.info { "Token exchange using offer authorization_server $canonical" }
+            return metadataResolver.resolveAuthorizationServerMetadata(canonical)
+        }
         return metadataResolver.resolveAuthorizationServerMetadataWithFallback(issuerMetadata)
     }
 
@@ -1337,9 +1386,14 @@ object WalletIssuanceHandler {
      */
     suspend fun generateAuthorizationUrl(request: GenerateAuthorizationUrlRequest): GenerateAuthorizationUrlResult {
         val offer = resolveOffer(request, httpClient)
-        val issuerMetadata = IssuerMetadataResolver(httpClient).resolveCredentialIssuerMetadata(offer.credentialIssuer)
-        val asMetadata =
-            IssuerMetadataResolver(httpClient).resolveAuthorizationServerMetadataWithFallback(issuerMetadata)
+        val metadataResolver = IssuerMetadataResolver(httpClient)
+        val issuerMetadata = metadataResolver.resolveCredentialIssuerMetadata(offer.credentialIssuer)
+        val asMetadata = resolveAuthorizationServerMetadataForOffer(
+            offer = offer,
+            issuerMetadata = issuerMetadata,
+            metadataResolver = metadataResolver,
+            preferPreAuthorized = false,
+        )
 
         requirePkceS256(asMetadata)
 
@@ -1395,6 +1449,11 @@ object WalletIssuanceHandler {
             credentialConfigurationId = credentialConfigurationId,
             credentialIssuerBaseUrl = offer.credentialIssuer,
             nonceEndpoint = issuerMetadata.nonceEndpoint?.let { Url(it) },
+            authorizationServer = authorizationServerForOffer(
+                offer,
+                issuerMetadata,
+                preferPreAuthorized = false,
+            ) ?: asMetadata.issuer.takeIf { it.isNotBlank() },
         )
     }
 
@@ -1498,7 +1557,11 @@ object WalletIssuanceHandler {
         val httpClient = defaultHttpClient()
         val credentialIssuerBaseUrl = request.credentialIssuerBaseUrl.takeIf { it.isNotBlank() }
             ?: error("credentialIssuerBaseUrl must be provided")
-        val asMetadata = resolveAuthorizationCodeAuthorizationServerMetadata(credentialIssuerBaseUrl, httpClient)
+        val asMetadata = resolveAuthorizationCodeAuthorizationServerMetadata(
+            credentialIssuerBaseUrl,
+            httpClient,
+            request.authorizationServer,
+        )
         return exchangeCode(
             request = request,
             tokenEndpoint = asMetadata.tokenEndpoint
@@ -1517,7 +1580,11 @@ object WalletIssuanceHandler {
     ): RequestTokenResult {
         val credentialIssuerBaseUrl = request.credentialIssuerBaseUrl.takeIf { it.isNotBlank() }
             ?: error("credentialIssuerBaseUrl must be provided")
-        val asMetadata = resolveAuthorizationCodeAuthorizationServerMetadata(credentialIssuerBaseUrl, httpClient)
+        val asMetadata = resolveAuthorizationCodeAuthorizationServerMetadata(
+            credentialIssuerBaseUrl,
+            httpClient,
+            request.authorizationServer,
+        )
         val tokenEndpoint = asMetadata.tokenEndpoint
             ?: error("Authorization server metadata contains no token_endpoint")
         val attestationHeaders = buildTokenEndpointAttestationHeaders(
@@ -1641,6 +1708,7 @@ object WalletIssuanceHandler {
         /** Inline DID for holder binding; defaults to the wallet's default DID. */
         inlineDid: String? = null,
         attestationAssembler: ClientAttestationAssembler? = null,
+        authorizationServer: String? = null,
         onEvent: suspend (WalletSessionEvent) -> Unit = {},
         httpClient: HttpClient = defaultHttpClient()
     ): Flow<StoredCredential> = channelFlow {
@@ -1655,6 +1723,7 @@ object WalletIssuanceHandler {
             clientId = clientId,
             redirectUri = redirectUri,
             credentialIssuerBaseUrl = credentialIssuerBaseUrl,
+            authorizationServer = authorizationServer,
         )
         val tokenResult = exchangeCode(
             wallet = wallet,

@@ -1057,7 +1057,8 @@ object Wallet2RouteHandler {
                         summary = "Auth-code grant: exchange authorization code for access token"
                         description =
                             "Exchanges the authorization code for an access token. " +
-                            "credentialIssuerBaseUrl is used to resolve authorization server metadata. " +
+                            "credentialIssuerBaseUrl resolves issuer metadata. " +
+                            "authorizationServer, when returned from authorization-url, selects that server's token endpoint. " +
                             "If attestation is configured and supported by the issuer, the wallet key is used " +
                             "to create token endpoint client authentication headers."
                         request { pathParameter<String>("walletId"); body<ExchangeCodeRequest>() }

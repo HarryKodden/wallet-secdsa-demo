@@ -11,7 +11,7 @@ Legend: **Stock** = upstream jar · **Overlay** = this repo · **Gap** = not cla
 | DIIP / 1.0 expectation | Status | Notes |
 |------------------------|--------|-------|
 | Metadata discovery (issuer + AS) | Overlay | Soft-fail configs; token-only AS; legacy `vc+sd-jwt` alias |
-| Separate AS vs credential issuer | Stock + Overlay | `authorization_servers` + fallback |
+| Separate AS vs credential issuer | Stock + Overlay | Offer `authorization_server` when named; otherwise `authorization_servers` fallback |
 | Nonce + JWT PoP | Overlay | `JwtProofBuilder`; `kid` from DID `authentication`; `iss` = `client_id` when present (walt.id issuer requires match to access-token `client_id`) |
 | PKCE S256 | Overlay | Forced; plain-only AS rejected |
 | PAR when required | Overlay | `WalletIssuanceHandler` |
